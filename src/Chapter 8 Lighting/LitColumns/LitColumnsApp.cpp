@@ -17,6 +17,10 @@ using namespace DirectX::PackedVector;
 
 const int gNumFrameResources = 3;
 
+// for animation
+float boxAngle = 0.0f;
+
+
 // Lightweight structure stores parameters to draw a shape.  This will
 // vary from app-to-app.
 struct RenderItem
@@ -81,6 +85,7 @@ private:
     void BuildShadersAndInputLayout();
     void BuildShapeGeometry();
 	void BuildSkullGeometry();
+	void BuildSponzaGeometry();
     void BuildPSOs();
     void BuildFrameResources();
     void BuildMaterials();
@@ -123,6 +128,7 @@ private:
     float mTheta = 1.5f*XM_PI;
     float mPhi = 0.2f*XM_PI;
     float mRadius = 15.0f;
+	float tx = 0.0f, ty = 0.0f, tz = 0.0f;
 
     POINT mLastMousePos;
 };
@@ -177,6 +183,7 @@ bool LitColumnsApp::Initialize()
     BuildShadersAndInputLayout();
     BuildShapeGeometry();
 	BuildSkullGeometry();
+	BuildSponzaGeometry();
 	BuildMaterials();
     BuildRenderItems();
     BuildFrameResources();
@@ -331,6 +338,23 @@ void LitColumnsApp::OnMouseMove(WPARAM btnState, int x, int y)
  
 void LitColumnsApp::OnKeyboardInput(const GameTimer& gt)
 {
+	float speed = 0.2f;
+	if (GetAsyncKeyState('W'))
+	{
+		tz += speed;
+	}
+	else if (GetAsyncKeyState('S'))
+	{
+		tz -= speed;
+	}
+	if (GetAsyncKeyState('A'))
+	{
+		tx += speed;
+	}
+	else if (GetAsyncKeyState('D'))
+	{
+		tx -= speed;
+	}
 }
  
 void LitColumnsApp::UpdateCamera(const GameTimer& gt)
@@ -345,8 +369,10 @@ void LitColumnsApp::UpdateCamera(const GameTimer& gt)
 	XMVECTOR target = XMVectorZero();
 	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
+	XMMATRIX translation = XMMatrixTranslation(tx, -ty, -tz);
 	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
-	XMStoreFloat4x4(&mView, view);
+	XMMATRIX res = XMMatrixMultiply(view, translation);
+	XMStoreFloat4x4(&mView, res);
 }
 
 void LitColumnsApp::AnimateMaterials(const GameTimer& gt)
@@ -685,6 +711,110 @@ void LitColumnsApp::BuildSkullGeometry()
 	mGeometries[geo->Name] = std::move(geo);
 }
 
+void LitColumnsApp::BuildSponzaGeometry()
+{
+
+	std::ifstream fin("Models/sponza.obj");
+
+	if (!fin)
+	{
+		MessageBox(0, L"Models/sponza.obj not found.", 0, 0);
+		return;
+	}
+	std::string line;
+	std::vector<Vertex> vertices;
+	std::vector<std::int32_t> indices;
+	std::vector<DirectX::XMFLOAT3> positions;
+	std::vector<DirectX::XMFLOAT3> normals;
+	std::vector<DirectX::XMFLOAT2> texcoords;
+
+	while (!fin.eof()) 
+	{
+		std::getline(fin, line);
+		std::istringstream iss(line.c_str());
+		char trash;
+		if (!line.compare(0, 2, "v ")) {
+			iss >> trash;
+			DirectX::XMFLOAT3 v;
+			iss >> v.x >> v.y >> v.z;
+			positions.emplace_back(v);
+		}
+		else if (!line.compare(0, 3, "vn ")) {
+			iss >> trash >> trash;
+			DirectX::XMFLOAT3 n;
+
+			iss >> n.x;
+			iss >> n.y;
+			iss >> n.z;
+			normals.emplace_back(n);
+		}
+		else if (!line.compare(0, 3, "vt ")) {
+			XMFLOAT2 tex;
+			iss >> trash >> trash;
+			iss >> tex.x >> tex.y;
+			tex.y = 1.0f - tex.y;
+			texcoords.emplace_back(tex);
+		}
+		else if (!line.compare(0, 2, "f ")) {
+			int p[3] = { -1, -1, -1 }, t[3] = { -1, -1, -1 }, n[3] = { -1, -1, -1 };
+			iss >> trash;
+
+			for (int i = 0; i < 3; ++i) {
+				iss >> p[i] >> trash >> t[i] >> trash >> n[i];
+				--p[i]; --n[i]; --t[i];
+			}
+			for (int i = 0; i < 3; ++i) {
+				Vertex v;
+				v.Pos = positions[p[i]];
+				v.TexC = texcoords[t[i]];
+				v.Normal = normals[n[i]];
+
+				vertices.emplace_back(v);
+				indices.emplace_back(static_cast<std::int32_t>(vertices.size() - 1));
+			}
+		}
+	}
+
+	fin.close();
+
+	//
+	// Pack the indices of all the meshes into one index buffer.
+	//
+
+	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+
+	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::int32_t);
+
+	auto geo = std::make_unique<MeshGeometry>();
+	geo->Name = "sponzaGeo";
+
+	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+	geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+	geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	SubmeshGeometry submesh;
+	submesh.IndexCount = (UINT)indices.size();
+	submesh.StartIndexLocation = 0;
+	submesh.BaseVertexLocation = 0;
+
+	geo->DrawArgs["sponza"] = submesh;
+
+	mGeometries[geo->Name] = std::move(geo);
+}
+
 void LitColumnsApp::BuildPSOs()
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
@@ -754,7 +884,7 @@ void LitColumnsApp::BuildMaterials()
 	tile0->Roughness = 0.2f;
 
 	auto skullMat = std::make_unique<Material>();
-	skullMat->Name = "skullMat";
+	skullMat->Name = "sponzaMat";
 	skullMat->MatCBIndex = 3;
 	skullMat->DiffuseSrvHeapIndex = 3;
 	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -764,12 +894,12 @@ void LitColumnsApp::BuildMaterials()
 	mMaterials["bricks0"] = std::move(bricks0);
 	mMaterials["stone0"] = std::move(stone0);
 	mMaterials["tile0"] = std::move(tile0);
-	mMaterials["skullMat"] = std::move(skullMat);
+	mMaterials["sponzaMat"] = std::move(skullMat);
 }
 
 void LitColumnsApp::BuildRenderItems()
 {
-	auto boxRitem = std::make_unique<RenderItem>();
+	/*auto boxRitem = std::make_unique<RenderItem>();
 	XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f)*XMMatrixTranslation(0.0f, 0.5f, 0.0f));
 	XMStoreFloat4x4(&boxRitem->TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
 	boxRitem->ObjCBIndex = 0;
@@ -791,23 +921,23 @@ void LitColumnsApp::BuildRenderItems()
     gridRitem->IndexCount = gridRitem->Geo->DrawArgs["grid"].IndexCount;
     gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
     gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
-	mAllRitems.push_back(std::move(gridRitem));
+	mAllRitems.push_back(std::move(gridRitem));*/
 
-	auto skullRitem = std::make_unique<RenderItem>();
-	XMStoreFloat4x4(&skullRitem->World, XMMatrixScaling(0.5f, 0.5f, 0.5f)*XMMatrixTranslation(0.0f, 1.0f, 0.0f));
-	skullRitem->TexTransform = MathHelper::Identity4x4();
-	skullRitem->ObjCBIndex = 2;
-	skullRitem->Mat = mMaterials["skullMat"].get();
-	skullRitem->Geo = mGeometries["skullGeo"].get();
-	skullRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	skullRitem->IndexCount = skullRitem->Geo->DrawArgs["skull"].IndexCount;
-	skullRitem->StartIndexLocation = skullRitem->Geo->DrawArgs["skull"].StartIndexLocation;
-	skullRitem->BaseVertexLocation = skullRitem->Geo->DrawArgs["skull"].BaseVertexLocation;
-	mAllRitems.push_back(std::move(skullRitem));
+	auto sponzaRitem = std::make_unique<RenderItem>();
+	XMStoreFloat4x4(&sponzaRitem->World, XMMatrixScaling(0.1f, 0.1f, 0.1f) * XMMatrixTranslation(0.0f, -5.0f, 0.0f));
+	sponzaRitem->TexTransform = MathHelper::Identity4x4();
+	sponzaRitem->ObjCBIndex = 0;
+	sponzaRitem->Mat = mMaterials["sponzaMat"].get();
+	sponzaRitem->Geo = mGeometries["sponzaGeo"].get();
+	sponzaRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	sponzaRitem->IndexCount = sponzaRitem->Geo->DrawArgs["sponza"].IndexCount;
+	sponzaRitem->StartIndexLocation = sponzaRitem->Geo->DrawArgs["sponza"].StartIndexLocation;
+	sponzaRitem->BaseVertexLocation = sponzaRitem->Geo->DrawArgs["sponza"].BaseVertexLocation;
+	mAllRitems.push_back(std::move(sponzaRitem));
 
 	XMMATRIX brickTexTransform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
 	UINT objCBIndex = 3;
-	for(int i = 0; i < 5; ++i)
+	for(int i = 0; i < 0; ++i)
 	{
 		auto leftCylRitem = std::make_unique<RenderItem>();
 		auto rightCylRitem = std::make_unique<RenderItem>();
