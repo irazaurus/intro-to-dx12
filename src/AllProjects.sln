@@ -122,6 +122,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Common", "Common", "{DA679B
 		Common\GeometryGenerator.h = Common\GeometryGenerator.h
 		Common\MathHelper.cpp = Common\MathHelper.cpp
 		Common\MathHelper.h = Common\MathHelper.h
+		ModelLoader.cpp = ModelLoader.cpp
 		Common\UploadBuffer.h = Common\UploadBuffer.h
 	EndProjectSection
 EndProject

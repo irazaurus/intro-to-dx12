@@ -64,19 +64,26 @@ cbuffer cbMaterial : register(b2)
 
 struct VertexIn
 {
-	float3 PosL    : POSITION;
+    float3 PosL : POSITION;
+    float3 NormalL : NORMAL;
+    float2 TexC : TEXCOORD;
 };
 
 struct VertexOut
 {
-	float3 PosL    : POSITION;
+    //float4 PosH : SV_POSITION;
+    float3 PosL : POSITION;
+    float3 NormalW : NORMAL;
+    float2 TexC : TEXCOORD;
 };
 
 VertexOut VS(VertexIn vin)
 {
 	VertexOut vout;
 	
-	vout.PosL = vin.PosL;
+    vout.PosL = vin.PosL;
+    vout.NormalW = vin.NormalL;
+    vout.TexC = vin.TexC;
 
 	return vout;
 }
@@ -159,7 +166,7 @@ DomainOut DS(PatchTess patchTess,
 	float3 p  = lerp(v1, v2, uv.y); 
 	
 	// Displacement mapping
-	p.y = 0.3f*( p.z*sin(p.x) + p.x*cos(p.z) );
+	p.y = 0.3f*( p.z*sin(p.x) + p.x*cos(p.z) ); // texture here
 	
 	float4 posW = mul(float4(p, 1.0f), gWorld);
 	dout.PosH = mul(posW, gViewProj);
@@ -167,7 +174,43 @@ DomainOut DS(PatchTess patchTess,
 	return dout;
 }
 
-float4 PS(DomainOut pin) : SV_Target
+float4 PS(VertexOut pin) : SV_Target
 {
-    return float4(1.0f, 1.0f, 1.0f, 1.0f);
+    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC) * gDiffuseAlbedo;
+	
+#ifdef ALPHA_TEST
+	// Discard pixel if texture alpha < 0.1.  We do this test as soon 
+	// as possible in the shader so that we can potentially exit the
+	// shader early, thereby skipping the rest of the shader code.
+	clip(diffuseAlbedo.a - 0.1f);
+#endif
+
+    // Interpolating normal can unnormalize it, so renormalize it.
+    pin.NormalW = normalize(pin.NormalW);
+
+    // Vector from point being lit to eye. 
+    float3 toEyeW = gEyePosW - pin.PosL;
+    float distToEye = length(toEyeW);
+    toEyeW /= distToEye; // normalize
+
+    // Light terms.
+    float4 ambient = gAmbientLight * diffuseAlbedo;
+
+    const float shininess = 1.0f - gRoughness;
+    Material mat = { diffuseAlbedo, gFresnelR0, shininess };
+    float3 shadowFactor = 1.0f;
+    float4 directLight = ComputeLighting(gLights, mat, pin.PosL,
+        pin.NormalW, toEyeW, shadowFactor);
+
+    float4 litColor = ambient + directLight;
+
+#ifdef FOG
+	float fogAmount = saturate((distToEye - gFogStart) / gFogRange);
+	litColor = lerp(litColor, gFogColor, fogAmount);
+#endif
+
+    // Common convention to take alpha from diffuse albedo.
+    litColor.a = diffuseAlbedo.a;
+
+    return litColor;
 }
