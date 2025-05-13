@@ -16,6 +16,9 @@ using namespace DirectX::PackedVector;
 
 const int gNumFrameResources = 3;
 
+// for animation
+float boxAngle = 0.0f;
+
 // Lightweight structure stores parameters to draw a shape.  This will
 // vary from app-to-app.
 struct RenderItem
@@ -117,6 +120,7 @@ private:
     float mTheta = 1.5f*XM_PI;
     float mPhi = 0.2f*XM_PI;
     float mRadius = 15.0f;
+    float tx = 0.0f, ty = 0.0f, tz = 0.0f;
 
     POINT mLastMousePos;
 };
@@ -331,10 +335,22 @@ void ShapesApp::OnMouseMove(WPARAM btnState, int x, int y)
  
 void ShapesApp::OnKeyboardInput(const GameTimer& gt)
 {
-    if(GetAsyncKeyState('1') & 0x8000)
-        mIsWireframe = true;
-    else
-        mIsWireframe = false;
+    if (GetAsyncKeyState('W'))
+    {
+        tz += 0.1f;
+    }
+    else if (GetAsyncKeyState('S'))
+    {
+        tz -= 0.1f;
+    }
+    if (GetAsyncKeyState('A'))
+    {
+        tx += 0.1f;
+    }
+    else if (GetAsyncKeyState('D'))
+    {
+        tx -= 0.1f;
+    }
 }
  
 void ShapesApp::UpdateCamera(const GameTimer& gt)
@@ -350,7 +366,9 @@ void ShapesApp::UpdateCamera(const GameTimer& gt)
 	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
 	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
-	XMStoreFloat4x4(&mView, view);
+    XMMATRIX translation = XMMatrixTranslation(tx, -ty, -tz);
+    XMMATRIX res = XMMatrixMultiply(view, translation);
+	XMStoreFloat4x4(&mView, res);
 }
 
 void ShapesApp::UpdateObjectCBs(const GameTimer& gt)
@@ -364,8 +382,27 @@ void ShapesApp::UpdateObjectCBs(const GameTimer& gt)
 		{
 			XMMATRIX world = XMLoadFloat4x4(&e->World);
 
-			ObjectConstants objConstants;
-			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
+            ObjectConstants objConstants;
+            if (mAllRitems.at(0) == e)
+            {
+                // aaaaaaaaaaaaaaaa fuck fuck fuck
+                boxAngle += 0.01f;
+                if (boxAngle > 2 * MathHelper::Pi) 
+                    boxAngle = 0;
+                float x = 5.0f * cosf(boxAngle);
+                float z = 5.0f * sinf(boxAngle);
+                XMMATRIX rotateBox = XMMatrixRotationY(boxAngle);
+                XMMATRIX translateBox = XMMatrixTranslation(x, 0.0f, z);
+                XMMATRIX finalWorld = XMMatrixMultiply(rotateBox, translateBox);
+                finalWorld = XMMatrixMultiply(finalWorld, world);
+                XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(finalWorld));
+                e->NumFramesDirty++;
+            }
+            
+            else
+            {
+			    XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
+            }
 
 			currObjectCB->CopyData(e->ObjCBIndex, objConstants);
 
@@ -528,7 +565,7 @@ void ShapesApp::BuildShapeGeometry()
 {
     GeometryGenerator geoGen;
 	GeometryGenerator::MeshData box = geoGen.CreateBox(1.5f, 0.5f, 1.5f, 3);
-	GeometryGenerator::MeshData grid = geoGen.CreateGrid(20.0f, 30.0f, 60, 40);
+	GeometryGenerator::MeshData grid = geoGen.CreateFishGrid(100.0f, 100.0f, 50, 50);
 	GeometryGenerator::MeshData sphere = geoGen.CreateSphere(0.5f, 20, 20);
 	GeometryGenerator::MeshData cylinder = geoGen.CreateCylinder(0.5f, 0.3f, 3.0f, 20, 20);
 
@@ -589,7 +626,9 @@ void ShapesApp::BuildShapeGeometry()
 	for(size_t i = 0; i < box.Vertices.size(); ++i, ++k)
 	{
 		vertices[k].Pos = box.Vertices[i].Position;
-        vertices[k].Color = XMFLOAT4(DirectX::Colors::DarkGreen);
+        if (box.Vertices[i].Position.x > 0.0f)
+            vertices[k].Color = XMFLOAT4(DirectX::Colors::DarkGreen);
+        else vertices[k].Color = XMFLOAT4(DirectX::Colors::Aquamarine);
 	}
 
 	for(size_t i = 0; i < grid.Vertices.size(); ++i, ++k)
@@ -668,7 +707,7 @@ void ShapesApp::BuildPSOs()
 		mShaders["opaquePS"]->GetBufferSize()
 	};
 	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
 	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.SampleMask = UINT_MAX;
@@ -702,7 +741,7 @@ void ShapesApp::BuildFrameResources()
 void ShapesApp::BuildRenderItems()
 {
 	auto boxRitem = std::make_unique<RenderItem>();
-	XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f)*XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+	XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f)*XMMatrixTranslation(0.0f, 1.0f, 0.0f));
 	boxRitem->ObjCBIndex = 0;
 	boxRitem->Geo = mGeometries["shapeGeo"].get();
 	boxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -715,14 +754,14 @@ void ShapesApp::BuildRenderItems()
     gridRitem->World = MathHelper::Identity4x4();
 	gridRitem->ObjCBIndex = 1;
 	gridRitem->Geo = mGeometries["shapeGeo"].get();
-	gridRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	gridRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_LINESTRIP;
     gridRitem->IndexCount = gridRitem->Geo->DrawArgs["grid"].IndexCount;
     gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
     gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
 	mAllRitems.push_back(std::move(gridRitem));
 
 	UINT objCBIndex = 2;
-	for(int i = 0; i < 5; ++i)
+	for(int i = 0; i < 0; ++i)
 	{
 		auto leftCylRitem = std::make_unique<RenderItem>();
 		auto rightCylRitem = std::make_unique<RenderItem>();
