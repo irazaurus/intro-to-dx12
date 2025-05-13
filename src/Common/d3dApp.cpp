@@ -88,16 +88,16 @@ int D3DApp::Run()
         {	
 			mTimer.Tick();
 
-			if( !mAppPaused )
+			//if( !mAppPaused )
 			{
 				CalculateFrameStats();
 				Update(mTimer);	
                 Draw(mTimer);
 			}
-			else
+			/*else
 			{
 				Sleep(100);
-			}
+			}*/
         }
     }
 
@@ -594,8 +594,7 @@ void D3DApp::CalculateFrameStats()
         wstring mspfStr = to_wstring(mspf);
 
         wstring windowText = mMainWndCaption +
-            L"    fps: " + fpsStr +
-            L"   mspf: " + mspfStr;
+            L"    fps: " + fpsStr;
 
         SetWindowText(mhMainWnd, windowText.c_str());
 		

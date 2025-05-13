@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <DirectXMath.h>
 #include <vector>
+#include <string>
 
 class GeometryGenerator
 {
@@ -75,6 +76,11 @@ public:
 	};
 
 	///<summary>
+	/// Creates a vector of MeshData's out of imported model
+	///</summary>
+	std::vector<MeshData> LoadModel(const std::string& pFile);
+
+	///<summary>
 	/// Creates a box centered at the origin with the given dimensions, where each
     /// face has m rows and n columns of vertices.
 	///</summary>
@@ -103,7 +109,9 @@ public:
 	/// Creates an mxn grid in the xz-plane with m rows and n columns, centered
 	/// at the origin with the specified width and depth.
 	///</summary>
-    MeshData CreateGrid(float width, float depth, uint32 m, uint32 n);
+    MeshData CreateGrid(float width, float depth, uint32 m, uint32 n, float uvScale);
+
+	MeshData CreateFishGrid(float width, float depth, uint32 m, uint32 n);
 
 	///<summary>
 	/// Creates a quad aligned with the screen.  This is useful for postprocessing and screen effects.

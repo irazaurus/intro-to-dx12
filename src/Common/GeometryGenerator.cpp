@@ -3,9 +3,71 @@
 //***************************************************************************************
 
 #include "GeometryGenerator.h"
+#include "d3dUtil.h"
+#include <assimp/Importer.hpp>      // C++ importer interface
+#include <assimp/scene.h>           // Output data structure
+#include <assimp/postprocess.h>     // Post processing flags
 #include <algorithm>
 
 using namespace DirectX;
+
+std::vector<GeometryGenerator::MeshData> GeometryGenerator::LoadModel(const std::string& pFile)
+{
+	Assimp::Importer imp;
+	const aiScene* scene = imp.ReadFile(pFile,
+		aiProcess_CalcTangentSpace |
+		aiProcess_ConvertToLeftHanded |
+		aiProcess_FlipUVs |
+		aiProcess_Triangulate |
+		aiProcess_GenNormals);
+
+	std::vector<MeshData> meshData;
+
+	if (nullptr == scene) {
+		ThrowIfFailed(E_FAIL);
+		return meshData;
+	}
+	if (!scene->HasMeshes()) return meshData;
+
+	// extracting all of the meshes
+	for (size_t i = 0; i < scene->mNumMeshes; i++)
+	{
+		const auto mesh = scene->mMeshes[i];
+		MeshData tempMesh;
+		// verteces
+		XMFLOAT3 vertex, normal, tangent;
+		XMFLOAT2 uvs;
+		tempMesh.Vertices.reserve(mesh->mNumVertices);
+		for (size_t j = 0; j < mesh->mNumVertices; j++)
+		{
+			vertex = XMFLOAT3((float)mesh->mVertices[j].x, (float)mesh->mVertices[j].y, (float)mesh->mVertices[j].z);
+			normal = XMFLOAT3((float)mesh->mNormals[j].x, (float)mesh->mNormals[j].y, (float)mesh->mNormals[j].z);
+			tangent = XMFLOAT3((float)mesh->mTangents[j].x, (float)mesh->mTangents[j].y, (float)mesh->mTangents[j].z);
+			if (mesh->HasTextureCoords(j)) {
+				uvs = XMFLOAT2((float)mesh->mTextureCoords[j]->x, (float)mesh->mTextureCoords[j]->y);
+			}
+			else {
+				uvs = XMFLOAT2(0.f, 0.f);
+			}
+			tempMesh.Vertices.push_back(Vertex(vertex, normal, tangent, uvs));
+		}
+
+		// indices
+		tempMesh.Indices32.reserve(mesh->mNumFaces * 3);
+		for (size_t j = 0; j < mesh->mNumFaces; j++)
+		{
+			const auto& face = mesh->mFaces[j];
+			assert(face.mNumIndices == 3);
+			tempMesh.Indices32.push_back(face.mIndices[0]);
+			tempMesh.Indices32.push_back(face.mIndices[1]);
+			tempMesh.Indices32.push_back(face.mIndices[2]);
+		}
+
+		meshData.emplace_back(tempMesh);
+	}
+
+	return meshData;
+}
 
 GeometryGenerator::MeshData GeometryGenerator::CreateBox(float width, float height, float depth, uint32 numSubdivisions)
 {
@@ -548,7 +610,7 @@ void GeometryGenerator::BuildCylinderBottomCap(float bottomRadius, float topRadi
 	}
 }
 
-GeometryGenerator::MeshData GeometryGenerator::CreateGrid(float width, float depth, uint32 m, uint32 n)
+GeometryGenerator::MeshData GeometryGenerator::CreateGrid(float width, float depth, uint32 m, uint32 n, float uvScale)
 {
     MeshData meshData;
 
@@ -581,8 +643,8 @@ GeometryGenerator::MeshData GeometryGenerator::CreateGrid(float width, float dep
 			meshData.Vertices[i*n+j].TangentU = XMFLOAT3(1.0f, 0.0f, 0.0f);
 
 			// Stretch texture over grid.
-			meshData.Vertices[i*n+j].TexC.x = j*du;
-			meshData.Vertices[i*n+j].TexC.y = i*dv;
+			meshData.Vertices[i*n+j].TexC.x = j*du*uvScale;
+			meshData.Vertices[i*n+j].TexC.y = i*dv*uvScale;
 		}
 	}
  
@@ -611,6 +673,72 @@ GeometryGenerator::MeshData GeometryGenerator::CreateGrid(float width, float dep
 	}
 
     return meshData;
+}
+
+
+GeometryGenerator::MeshData GeometryGenerator::CreateFishGrid(float width, float depth, uint32 m, uint32 n)
+{
+	MeshData meshData;
+
+	uint32 vertexCount = m * n;
+	uint32 faceCount = (m - 1) * (n - 1) * 2;
+
+	//
+	// Create the vertices.
+	//
+
+	float halfWidth = 0.5f * width;
+	float halfDepth = 0.5f * depth;
+
+	float dx = width / (n - 1);
+	float dz = depth / (m - 1);
+
+	float du = 1.0f / (n - 1);
+	float dv = 1.0f / (m - 1);
+
+	meshData.Vertices.resize(vertexCount);
+	for (uint32 i = 0; i < m; ++i)
+	{
+		float z = halfDepth - i * dz;
+		for (uint32 j = 0; j < n; ++j)
+		{
+			float x = -halfWidth + j * dx;
+
+			meshData.Vertices[i * n + j].Position = XMFLOAT3(x, 0.0f, z);
+			meshData.Vertices[i * n + j].Normal = XMFLOAT3(0.0f, 1.0f, 0.0f);
+			meshData.Vertices[i * n + j].TangentU = XMFLOAT3(1.0f, 0.0f, 0.0f);
+
+			// Stretch texture over grid.
+			meshData.Vertices[i * n + j].TexC.x = j * du;
+			meshData.Vertices[i * n + j].TexC.y = i * dv;
+		}
+	}
+
+	//
+	// Create the indices.
+	//
+
+	meshData.Indices32.resize(faceCount * 3); // 3 indices per face
+
+	// Iterate over each quad and compute indices.
+	uint32 k = 0;
+	for (uint32 i = 0; i < m - 1; ++i)
+	{
+		for (uint32 j = 0; j < n - 1; ++j)
+		{
+			meshData.Indices32[k] = i * n + j;
+			meshData.Indices32[k + 1] = i * n + j;
+			meshData.Indices32[k + 2] = (i + 1) * n + j;
+
+			meshData.Indices32[k + 3] = (i + 1) * n + j;
+			meshData.Indices32[k + 4] = (i + 1) * n + j;
+			meshData.Indices32[k + 5] = (i + 1) * n + j + 1;
+
+			k += 6; // next quad
+		}
+	}
+
+	return meshData;
 }
 
 GeometryGenerator::MeshData GeometryGenerator::CreateQuad(float x, float y, float w, float h, float depth)
