@@ -39,6 +39,9 @@
     <ClCompile Include="TexColumnsApp.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Common\Camera.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Common\d3dApp.h">
@@ -68,5 +71,11 @@
     <ClInclude Include="FrameResource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Common\Camera.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>

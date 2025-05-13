@@ -107,7 +107,20 @@ VertexOut VS(VertexIn vin)
 
 float4 PS(VertexOut pin) : SV_Target
 {
-    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC) * gDiffuseAlbedo;
+    //float cosRot = cos(gTotalTime);
+    //float sinRot = sin(gTotalTime);
+    
+    //float2x2 rotationMatrixRight = float2x2(cosRot, -sinRot, sinRot, cosRot);
+    //float2x2 rotationMatrixLeft = float2x2(cosRot, sinRot, -sinRot, cosRot);
+    
+    //float2 TexCRotL = mul(rotationMatrixLeft, frac(pin.TexC) - 0.5f) + 0.5f;
+    //float2 TexCRotR = mul(rotationMatrixRight, frac(pin.TexC) - 0.5f) + 0.5f;
+    
+    float4 diffuseAlbedo;
+    //if ((uint)pin.TexC % 2 == 0)
+        diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC) * gDiffuseAlbedo;
+    //else 
+    //    diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, TexCRotL) * gDiffuseAlbedo;
 	
     // Interpolating normal can unnormalize it, so renormalize it.
     pin.NormalW = normalize(pin.NormalW);
