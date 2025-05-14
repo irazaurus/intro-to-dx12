@@ -171,7 +171,8 @@ bool TexColumnsApp::Initialize()
 	// so we have to query this information.
 	mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	mCamera.SetPosition(0.0f, 0.0f, 0.0f);
+	mCamera.SetPosition(0.0f, 20.0f, 0.0f);
+	mCamera.Pitch(-5.0f);
 
 	LoadTextures();
 	BuildRootSignature();
@@ -443,10 +444,12 @@ void TexColumnsApp::LoadTextures()
 
 	auto bricksDisp = std::make_unique<Texture>();
 	bricksDisp->Name = "bricksDispTex";
-	bricksDisp->Filename = L"../../Textures/tile.dds";
+	bricksDisp->Filename = L"../../Textures/bc4u_displacement.dds";
 	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
 		mCommandList.Get(), bricksDisp->Filename.c_str(),
 		bricksDisp->Resource, bricksDisp->UploadHeap));
+
+	assert(bricksDisp != nullptr);
 
 	mTextures[bricksTex->Name] = std::move(bricksTex);
 	mTextures[bricksNorm->Name] = std::move(bricksNorm);
@@ -465,7 +468,7 @@ void TexColumnsApp::BuildRootSignature()
 	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
 
 	// Perfomance TIP: Order from most frequent to least frequent.
-	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_ALL);
 	slotRootParameter[1].InitAsConstantBufferView(0); // register b0
 	slotRootParameter[2].InitAsConstantBufferView(1); // register b1
 	slotRootParameter[3].InitAsConstantBufferView(2); // register b2

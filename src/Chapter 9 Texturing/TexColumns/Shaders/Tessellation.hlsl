@@ -6,6 +6,19 @@
 // Include structures and functions for lighting.
 #include "LightingUtil.hlsl"
 
+// Defaults for number of lights.
+#ifndef NUM_DIR_LIGHTS
+    #define NUM_DIR_LIGHTS 3
+#endif
+
+#ifndef NUM_POINT_LIGHTS
+    #define NUM_POINT_LIGHTS 0
+#endif
+
+#ifndef NUM_SPOT_LIGHTS
+    #define NUM_SPOT_LIGHTS 0
+#endif
+
 Texture2D gDiffuseMap : register(t0);
 Texture2D gNormalMap : register(t1);
 Texture2D gDisplacementMap : register(t2);
@@ -153,25 +166,36 @@ DomainOut DS(PatchTess patchTess,
              const OutputPatch<HullOut, 3> tri)
 {
     DomainOut dout;
-
+    
     float3 p = bary.x * tri[0].PosL +
                bary.y * tri[1].PosL +
                bary.z * tri[2].PosL;
+    
+    if (bary.x + bary.y + bary.z != 1.0f)
+    {
+        p = (0.0f, 20.0f, 0.0f);
 
+    }
+    
     float2 t = bary.x * tri[0].TexC +
                bary.y * tri[1].TexC +
                bary.z * tri[2].TexC;
 
+    
+    float3 norm = bary.x * tri[0].NormalW +
+               bary.y * tri[1].NormalW +
+               bary.z * tri[2].NormalW;
+
     // Displacement mapping
-    //float disp = gDisplacementMap.Sample(gsamAnisotropicWrap, t).r;
-    float disp = 1.0f;
-    //p.y += (disp - 0.5f) * 1.0f;
-    p.y = -1.0f;
+    float disp = gDisplacementMap.Load(int3(t, 0)).r;
+    if (abs(disp) < 1e-5f)
+        disp = 1.0f;
+    p.y += disp * 10.0f;
 
     dout.PosL = p;
     float4 posW = mul(float4(p, 1.0f), gWorld);
     dout.PosH = mul(posW, gViewProj);
-    dout.NormalW = tri[0].NormalW;
+    dout.NormalW = norm;
     dout.Tangent = tri[0].Tangent;
     dout.TexC = t;
 
@@ -189,18 +213,18 @@ float4 PS(DomainOut pin) : SV_Target
 	// shader early, thereby skipping the rest of the shader code.
 	clip(diffuseAlbedo.a - 0.1f);
 #endif
-
+    
 	// TBN
- //   float3 bitangent = (cross(pin.NormalW, pin.Tangent));
- //   bitangent = normalize(mul(bitangent, (float3x3) gWorld));
- //   float3 tangent = normalize(mul(pin.Tangent, (float3x3) gWorld));
- //   float3 normal = normalize(mul(pin.NormalW, (float3x3) gWorld));
- //   float3x3 TBN = float3x3(pin.Tangent, bitangent, pin.NormalW);
+    float3 bitangent = (cross(pin.NormalW, pin.Tangent));
+    bitangent = normalize(mul(bitangent, (float3x3) gWorld));
+    float3 tangent = normalize(mul(pin.Tangent, (float3x3) gWorld));
+    float3 normal = normalize(mul(pin.NormalW, (float3x3) gWorld));
+    float3x3 TBN = float3x3(pin.Tangent, bitangent, pin.NormalW);
 	
-	//// normal from texture
- //   float3 normalMap = gNormalMap.Sample(gsamAnisotropicWrap, pin.TexC).rgb;
- //   normalMap = normalMap * 2.0f - 1.0f;
- //   normalMap = normalize(mul(normalMap, TBN));
+	// normal from texture
+    float3 normalMap = gNormalMap.Sample(gsamAnisotropicWrap, pin.TexC).rgb;
+    normalMap = normalMap * 2.0f - 1.0f;
+    normalMap = normalize(mul(normalMap, TBN));
 	
     // Vector from point being lit to eye. 
     float3 toEyeW = gEyePosW - pin.PosL;
@@ -214,7 +238,11 @@ float4 PS(DomainOut pin) : SV_Target
     Material mat = { diffuseAlbedo, gFresnelR0, shininess };
     float3 shadowFactor = 1.0f;
     float4 directLight = ComputeLighting(gLights, mat, pin.PosL,
-        pin.NormalW, toEyeW, shadowFactor);
+        normalMap, toEyeW, shadowFactor);
+    
+    // this is shit
+    if (!any(directLight))
+        directLight = (0.1f, 0.1f, 0.1f, 0.1f);
 
     float4 litColor = ambient + directLight;
 
