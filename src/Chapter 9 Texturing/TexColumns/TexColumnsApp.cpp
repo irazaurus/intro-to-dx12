@@ -421,6 +421,8 @@ void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
 	mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
 	mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+	mMainPassCB.Lights[15].Direction = { 0.57735f, -0.57735f, 0.57735f };
+	mMainPassCB.Lights[15].Strength = { 0.8f, 0.8f, 0.8f };
 
 	auto currPassCB = mCurrFrameResource->PassCB.get();
 	currPassCB->CopyData(0, mMainPassCB);
@@ -430,21 +432,21 @@ void TexColumnsApp::LoadTextures()
 {
 	auto bricksTex = std::make_unique<Texture>();
 	bricksTex->Name = "bricksTex";
-	bricksTex->Filename = L"../../Textures/bricks.dds";
+	bricksTex->Filename = L"../../Textures/tile.dds";
 	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
 		mCommandList.Get(), bricksTex->Filename.c_str(),
 		bricksTex->Resource, bricksTex->UploadHeap));
 
 	auto bricksNorm = std::make_unique<Texture>();
 	bricksNorm->Name = "bricksNormTex";
-	bricksNorm->Filename = L"../../Textures/bricks_nmap.dds";
+	bricksNorm->Filename = L"../../Textures/tile_nmap.dds";
 	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
 		mCommandList.Get(), bricksNorm->Filename.c_str(),
 		bricksNorm->Resource, bricksNorm->UploadHeap));
 
 	auto bricksDisp = std::make_unique<Texture>();
 	bricksDisp->Name = "bricksDispTex";
-	bricksDisp->Filename = L"../../Textures/bc4u_displacement.dds";
+	bricksDisp->Filename = L"../../Textures/checkboard.dds";
 	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
 		mCommandList.Get(), bricksDisp->Filename.c_str(),
 		bricksDisp->Resource, bricksDisp->UploadHeap));
@@ -569,7 +571,7 @@ void TexColumnsApp::BuildShapeGeometry()
 {
 	GeometryGenerator geoGen;
 	GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
-	GeometryGenerator::MeshData grid = geoGen.CreateGrid(20.0f, 30.0f, 60, 40, 10.0f);
+	GeometryGenerator::MeshData grid = geoGen.CreateGrid(20.0f, 20.0f, 10, 10, 1.0f);
 	//std::vector<GeometryGenerator::MeshData> sponza = geoGen.LoadModel("..\\..\\Models\\glTF\\Sponza.gltf");
 
 	//

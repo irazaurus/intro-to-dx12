@@ -56,11 +56,6 @@ cbuffer cbPass : register(b1)
     float gDeltaTime;
     float4 gAmbientLight;
 
-    float4 gFogColor;
-    float gFogStart;
-    float gFogRange;
-    float2 cbPerObjectPad2;
-
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
 	// indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
@@ -125,7 +120,7 @@ PatchTess ConstantHS(InputPatch<Vertex, 3> patch, uint patchID : SV_PrimitiveID)
 	// the tessellation is 0 if d >= d1 and 64 if d <= d0.  The interval
 	// [d0, d1] defines the range we tessellate in.
 	
-    const float d0 = 20.0f;
+    const float d0 = 1.0f;
     const float d1 = 100.0f;
     float tess = 64.0f * saturate((d1 - d) / (d1 - d0));
 
@@ -180,17 +175,19 @@ DomainOut DS(PatchTess patchTess,
     float2 t = bary.x * tri[0].TexC +
                bary.y * tri[1].TexC +
                bary.z * tri[2].TexC;
-
+    t = float2(abs(t.x) - (uint) t.x, abs(t.y) - (uint) t.y);
     
     float3 norm = bary.x * tri[0].NormalW +
                bary.y * tri[1].NormalW +
                bary.z * tri[2].NormalW;
 
     // Displacement mapping
-    float disp = gDisplacementMap.Load(int3(t, 0)).r;
+    uint width, height;
+    gDisplacementMap.GetDimensions(width, height);
+    float disp = gDisplacementMap.Load(int3(t.x * width, t.y * height, 0)).r;
     if (abs(disp) < 1e-5f)
         disp = 1.0f;
-    p.y += disp * 10.0f;
+    p.y += disp * 1.0f;
 
     dout.PosL = p;
     float4 posW = mul(float4(p, 1.0f), gWorld);
@@ -241,8 +238,8 @@ float4 PS(DomainOut pin) : SV_Target
         normalMap, toEyeW, shadowFactor);
     
     // this is shit
-    if (!any(directLight))
-        directLight = (0.1f, 0.1f, 0.1f, 0.1f);
+    //if (!any(directLight))
+    //    directLight = (0.1f, 0.1f, 0.1f, 0.1f);
 
     float4 litColor = ambient + directLight;
 
