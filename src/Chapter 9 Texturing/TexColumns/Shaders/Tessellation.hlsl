@@ -120,12 +120,17 @@ PatchTess ConstantHS(InputPatch<Vertex, 3> patch, uint patchID : SV_PrimitiveID)
 	// the tessellation is 0 if d >= d1 and 64 if d <= d0.  The interval
 	// [d0, d1] defines the range we tessellate in.
 	
-    const float d0 = 1.0f;
+    const float d0 = 20.0f;
     const float d1 = 100.0f;
-    float tess = 64.0f * saturate((d1 - d) / (d1 - d0));
+    if (d < d0)
+        d = d0;
+    
+    float tess = 8 * saturate((d1 - d) / (d1 - d0));
+    if (tess <= 0)
+        tess = 1;
 
 	// Uniformly tessellate the patch.
-
+    
     pt.EdgeTess[0] = tess;
     pt.EdgeTess[1] = tess;
     pt.EdgeTess[2] = tess;
@@ -250,6 +255,6 @@ float4 PS(DomainOut pin) : SV_Target
 
     // Common convention to take alpha from diffuse albedo.
     litColor.a = diffuseAlbedo.a;
-
+    
     return litColor;
 }

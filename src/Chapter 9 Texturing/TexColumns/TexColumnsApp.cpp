@@ -16,6 +16,8 @@ using namespace DirectX::PackedVector;
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
 
+// #define DEBUG_VIEW
+
 const int gNumFrameResources = 3;
 
 // Lightweight structure stores parameters to draw a shape.  This will
@@ -719,6 +721,11 @@ void TexColumnsApp::BuildPSOs()
 		mShaders["opaquePS"]->GetBufferSize()
 	};
 	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+#ifdef DEBUG_VIEW
+	opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+#else
+	opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+#endif // DEBUG_VIEW
 	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.SampleMask = UINT_MAX;
