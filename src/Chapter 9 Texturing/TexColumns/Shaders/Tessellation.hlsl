@@ -1,8 +1,3 @@
-//***************************************************************************************
-// Tessellation.hlsl by Frank Luna (C) 2015 All Rights Reserved.
-//***************************************************************************************
-
-
 // Include structures and functions for lighting.
 #include "LightingUtil.hlsl"
 
@@ -117,7 +112,7 @@ PatchTess ConstantHS(InputPatch<Vertex, 3> patch, uint patchID : SV_PrimitiveID)
     float d = distance(centerW, gEyePosW);
 
 	// Tessellate the patch based on distance from the eye such that
-	// the tessellation is 0 if d >= d1 and 64 if d <= d0.  The interval
+	// the tessellation is 1 if d >= d1 and 8 if d <= d0.  The interval
 	// [d0, d1] defines the range we tessellate in.
 	
     const float d0 = 20.0f;

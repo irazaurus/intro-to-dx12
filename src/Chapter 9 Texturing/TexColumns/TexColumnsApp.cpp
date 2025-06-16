@@ -17,6 +17,8 @@ using namespace DirectX::PackedVector;
 #pragma comment(lib, "D3D12.lib")
 
 // #define DEBUG_VIEW
+//#define DEBUG
+#define POSTEFFECTS
 
 const int gNumFrameResources = 3;
 
@@ -91,6 +93,9 @@ private:
 	void BuildRenderItem(std::string name, std::string material, XMMATRIX translate, float scale = 1.f, float scaleTex = 1.f);
 	void BuildRenderItems();
 	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+	void BuildPostProcessResources();
+	void BuildPostProcessPSO();
+	void BuildPostProcessRootSignature();
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -111,6 +116,15 @@ private:
 	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
 	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
+
+	// For post-processing
+	ComPtr<ID3D12Resource> mPostProcessRenderTarget;
+	ComPtr<ID3D12Resource> mPostProcessRenderTargetUpload;
+	ComPtr<ID3D12DescriptorHeap> mPostProcessRTVHeap;
+	ComPtr<ID3D12DescriptorHeap> mPostProcessSRVHeap;
+	ComPtr<ID3D12PipelineState> mPostProcessPSO;
+	ComPtr<ID3D12RootSignature> mPostProcessRootSignature;
+	std::unordered_map<std::string, ComPtr<ID3DBlob>> mPostProcessShaders;
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
@@ -183,6 +197,13 @@ bool TexColumnsApp::Initialize()
 	BuildShapeGeometry();
 	BuildMaterials();
 	BuildRenderItems();
+
+#if defined(POSTEFFECTS)
+	BuildPostProcessResources();
+	BuildPostProcessRootSignature();
+	BuildPostProcessPSO();
+#endif
+
 	BuildFrameResources();
 	BuildPSOs();
 
@@ -245,17 +266,35 @@ void TexColumnsApp::Draw(const GameTimer& gt)
 	mCommandList->RSSetViewports(1, &mScreenViewport);
 	mCommandList->RSSetScissorRects(1, &mScissorRect);
 
+#if defined(POSTEFFECTS)
+	// Transition render target to render target state
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+		mPostProcessRenderTarget.Get(),
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		D3D12_RESOURCE_STATE_RENDER_TARGET));
+	// Clear render target
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart());
+	mCommandList->ClearRenderTargetView(rtvHandle, Colors::LightSteelBlue, 0, nullptr);
+# else
 	// Indicate a state transition on the resource usage.
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
-
-	// Clear the back buffer and depth buffer.
+		D3D12_RESOURCE_STATE_PRESENT, 
+		D3D12_RESOURCE_STATE_RENDER_TARGET));
+	// Clear back buffer
 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
+#endif
+
+	// Clear depth buffer.
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
+#if defined(POSTEFFECTS)
+	// Set render target
+	mCommandList->OMSetRenderTargets(1, &rtvHandle, true, &DepthStencilView());
+# else
 	// Specify the buffers we are going to render to.
 	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-
+#endif
+	
 	ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
 	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
@@ -265,6 +304,44 @@ void TexColumnsApp::Draw(const GameTimer& gt)
 	mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
 	DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
+
+#if defined(POSTEFFECTS)
+	// Transition render target to shader resource for post-processing
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+		mPostProcessRenderTarget.Get(),
+		D3D12_RESOURCE_STATE_RENDER_TARGET,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+
+	// Transition back buffer to render target for post-processing
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+		CurrentBackBuffer(),
+		D3D12_RESOURCE_STATE_PRESENT,
+		D3D12_RESOURCE_STATE_RENDER_TARGET));
+
+	// Post-processing pass
+	mCommandList->SetPipelineState(mPostProcessPSO.Get());
+	mCommandList->SetGraphicsRootSignature(mPostProcessRootSignature.Get());
+
+	ID3D12DescriptorHeap* postProcessHeaps[] = { mPostProcessSRVHeap.Get() };
+	mCommandList->SetDescriptorHeaps(_countof(postProcessHeaps), postProcessHeaps);
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(
+		mPostProcessSRVHeap->GetGPUDescriptorHandleForHeapStart());
+	mCommandList->SetGraphicsRootDescriptorTable(0, srvHandle);
+
+	// Set back buffer as render target
+	CD3DX12_CPU_DESCRIPTOR_HANDLE backBufferRtvHandle(
+		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
+		mCurrBackBuffer,
+		mCbvSrvDescriptorSize);
+	mCommandList->OMSetRenderTargets(1, &backBufferRtvHandle, true, nullptr);
+
+	// Draw fullscreen quad
+	mCommandList->IASetVertexBuffers(0, 0, nullptr);
+	mCommandList->IASetIndexBuffer(nullptr);
+	mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	mCommandList->DrawInstanced(3, 1, 0, 0);
+#endif
 
 	// Indicate a state transition on the resource usage.
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -826,6 +903,141 @@ void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const st
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
+}
+
+void TexColumnsApp::BuildPostProcessResources()
+{
+	// Create render target for post-processing
+	D3D12_RESOURCE_DESC renderTargetDesc;
+	ZeroMemory(&renderTargetDesc, sizeof(D3D12_RESOURCE_DESC));
+	renderTargetDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	renderTargetDesc.Alignment = 0;
+	renderTargetDesc.Width = mClientWidth;
+	renderTargetDesc.Height = mClientHeight;
+	renderTargetDesc.DepthOrArraySize = 1;
+	renderTargetDesc.MipLevels = 1;
+	renderTargetDesc.Format = mBackBufferFormat;
+	renderTargetDesc.SampleDesc.Count = 1;
+	renderTargetDesc.SampleDesc.Quality = 0;
+	renderTargetDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	renderTargetDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+	D3D12_CLEAR_VALUE clearValue;
+	clearValue.Format = mBackBufferFormat;
+	memcpy(clearValue.Color, Colors::LightSteelBlue, sizeof(float) * 4);
+
+	ThrowIfFailed(md3dDevice->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&renderTargetDesc,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		&clearValue,
+		IID_PPV_ARGS(&mPostProcessRenderTarget)));
+
+	// Create RTV heap
+	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
+	rtvHeapDesc.NumDescriptors = 1;
+	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	rtvHeapDesc.NodeMask = 0;
+	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
+		&rtvHeapDesc, IID_PPV_ARGS(&mPostProcessRTVHeap)));
+
+	// Create RTV
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(
+		mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart());
+	md3dDevice->CreateRenderTargetView(
+		mPostProcessRenderTarget.Get(), nullptr, rtvHandle);
+
+	// Create SRV heap
+	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+	srvHeapDesc.NumDescriptors = 1;
+	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
+		&srvHeapDesc, IID_PPV_ARGS(&mPostProcessSRVHeap)));
+
+	// Create SRV
+	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(
+		mPostProcessSRVHeap->GetCPUDescriptorHandleForHeapStart());
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.Format = mBackBufferFormat;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc.Texture2D.MostDetailedMip = 0;
+	srvDesc.Texture2D.MipLevels = 1;
+	md3dDevice->CreateShaderResourceView(
+		mPostProcessRenderTarget.Get(), &srvDesc, srvHandle);
+}
+
+void TexColumnsApp::BuildPostProcessPSO()
+{
+	// Compile shaders
+	mPostProcessShaders["postVS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "VS", "vs_5_0");
+	mPostProcessShaders["postPS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "PS", "ps_5_0");
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
+	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+	psoDesc.InputLayout = { nullptr, 0 };
+	psoDesc.pRootSignature = mPostProcessRootSignature.Get();
+	psoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mPostProcessShaders["postVS"]->GetBufferPointer()),
+		mPostProcessShaders["postVS"]->GetBufferSize()
+	};
+	psoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mPostProcessShaders["postPS"]->GetBufferPointer()),
+		mPostProcessShaders["postPS"]->GetBufferSize()
+	};
+	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	psoDesc.DepthStencilState.DepthEnable = false;
+	psoDesc.DepthStencilState.StencilEnable = false;
+	psoDesc.SampleMask = UINT_MAX;
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoDesc.NumRenderTargets = 1;
+	psoDesc.RTVFormats[0] = mBackBufferFormat;
+	psoDesc.SampleDesc.Count = 1;
+	psoDesc.SampleDesc.Quality = 0;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPostProcessPSO)));
+}
+
+void TexColumnsApp::BuildPostProcessRootSignature()
+{
+	CD3DX12_DESCRIPTOR_RANGE srvTable;
+	srvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[1];
+	slotRootParameter[0].InitAsDescriptorTable(1, &srvTable, D3D12_SHADER_VISIBILITY_PIXEL);
+
+	CD3DX12_STATIC_SAMPLER_DESC sampler(
+		0, // shaderRegister
+		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressU
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressV
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(1, slotRootParameter,
+		1, &sampler,
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(md3dDevice->CreateRootSignature(
+		0,
+		serializedRootSig->GetBufferPointer(),
+		serializedRootSig->GetBufferSize(),
+		IID_PPV_ARGS(&mPostProcessRootSignature)));
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> TexColumnsApp::GetStaticSamplers()
