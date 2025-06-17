@@ -20,26 +20,25 @@ VertexOut VS(uint vid : SV_VertexID)
     return vout;
 }
 
+float4 ChromaticAberration(VertexOut pin, float Intensity, float2 Direction) : SV_Target
+{
+    float2 texOffset = float2(1.0f / 1280.0f, 1.0f / 720.0f) * Intensity;
+    
+    float2 offsetR = Direction * texOffset * 1.5f;
+    float2 offsetG = Direction * texOffset * 0.5f;
+    float2 offsetB = -Direction * texOffset * 1.0f;
+    
+    float r = gInputImage.Sample(gSampler, pin.TexC + offsetR).r;
+    float g = gInputImage.Sample(gSampler, pin.TexC + offsetG).g;
+    float b = gInputImage.Sample(gSampler, pin.TexC + offsetB).b;
+    
+    return float4(r, g, b, 1.0f);
+}
+
 float4 PS(VertexOut pin) : SV_Target
 {
     // Default color
-    float4 color = gInputImage.Sample(gSampler, pin.TexC);
-    
-    color.rgb = 1.0 - color.rgb;
-    
-    // Basic blur effect
-    /*
-    float2 texelSize = 1.0 / float2(1280, 720);
-    float4 blurColor = float4(0, 0, 0, 0);
-    for (int x = -2; x <= 2; x++)
-    {
-        for (int y = -2; y <= 2; y++)
-        {
-            blurColor += gInputImage.Sample(gSampler, pin.TexC + float2(x, y) * texelSize);
-        }
-    }
-    color = blurColor / 25.0;
-    */
+    float4 color = ChromaticAberration(pin, 2.0, float2(1.0, -1.0));
     
     return color;
 }
