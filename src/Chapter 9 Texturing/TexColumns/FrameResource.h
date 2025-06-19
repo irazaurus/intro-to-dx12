@@ -4,6 +4,19 @@
 #include "../../Common/MathHelper.h"
 #include "../../Common/UploadBuffer.h"
 
+struct PostProcessSettings {
+    DirectX::XMFLOAT2 BlurDirection = { 1.0f, 0.0f };
+    float MaxBlurRadius = 5.0f;
+    float DepthBlurThreshold = 0.7f;
+
+    DirectX::XMFLOAT2 ChromaticDirection = { 1.0f, 0.0f };
+    float ChromaticIntensity = 0.02f;
+    float ChromaticDistanceScale = 1.5f;
+
+    float EffectIntensity = 1.0f;
+    int EffectType = 2;
+};
+
 struct ObjectConstants
 {
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
@@ -65,6 +78,8 @@ public:
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
     std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
+    std::unique_ptr<UploadBuffer<PostProcessSettings>> PostProcessCB = nullptr;
+
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.
