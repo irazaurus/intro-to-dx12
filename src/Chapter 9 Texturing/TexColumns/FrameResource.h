@@ -5,16 +5,18 @@
 #include "../../Common/UploadBuffer.h"
 
 struct PostProcessSettings {
-    DirectX::XMFLOAT2 BlurDirection = { 1.0f, 0.0f };
-    float MaxBlurRadius = 5.0f;
-    float DepthBlurThreshold = 0.7f;
+    float FocusDistance;
+    float FocusRange;
+    float NearBlurStrength;
+    float FarBlurStrength;
 
-    DirectX::XMFLOAT2 ChromaticDirection = { 1.0f, 0.0f };
-    float ChromaticIntensity = 0.02f;
-    float ChromaticDistanceScale = 1.5f;
+    DirectX::XMFLOAT2 ChromaticDirection;
+    float ChromaticIntensity;
+    float ChromaticDistanceScale;
 
-    float EffectIntensity = 1.0f;
-    int EffectType = 2;
+    float EffectIntensity;
+    int EffectType;
+    float Padding[2];
 };
 
 struct ObjectConstants

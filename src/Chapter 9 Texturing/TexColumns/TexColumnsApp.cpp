@@ -81,6 +81,7 @@ private:
 	void UpdateObjectCBs(const GameTimer& gt);
 	void UpdateMaterialCBs(const GameTimer& gt);
 	void UpdateMainPassCB(const GameTimer& gt);
+	void UpdatePostProcessCB(const GameTimer& gt);
 
 	void LoadTextures();
 	void BuildRootSignature();
@@ -249,6 +250,7 @@ void TexColumnsApp::Update(const GameTimer& gt)
 	UpdateObjectCBs(gt);
 	UpdateMaterialCBs(gt);
 	UpdateMainPassCB(gt);
+	UpdatePostProcessCB(gt);
 }
 
 void TexColumnsApp::Draw(const GameTimer& gt)
@@ -327,7 +329,12 @@ void TexColumnsApp::Draw(const GameTimer& gt)
 
 	CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(
 		mPostProcessSRVHeap->GetGPUDescriptorHandleForHeapStart());
-	mCommandList->SetGraphicsRootDescriptorTable(0, srvHandle);
+	mCommandList->SetGraphicsRootDescriptorTable(0, srvHandle); // Texture
+	srvHandle.Offset(1, mCbvSrvDescriptorSize);
+	mCommandList->SetGraphicsRootDescriptorTable(1, srvHandle); // Depth buffer
+	auto postProcessCB = mCurrFrameResource->PostProcessCB->Resource();
+    mCommandList->SetGraphicsRootConstantBufferView(2, 
+        postProcessCB->GetGPUVirtualAddress()); // PostProcess Settings
 
 	// Set back buffer as render target
 	CD3DX12_CPU_DESCRIPTOR_HANDLE backBufferRtvHandle(
@@ -468,6 +475,24 @@ void TexColumnsApp::UpdateMaterialCBs(const GameTimer& gt)
 			mat->NumFramesDirty--;
 		}
 	}
+}
+
+void TexColumnsApp::UpdatePostProcessCB(const GameTimer& gt)
+{
+	auto currPostProcessCB = mCurrFrameResource->PostProcessCB.get();
+	PostProcessSettings postProcessSettings;
+
+	postProcessSettings.FocusDistance = 0.95f;
+	postProcessSettings.FocusRange = 0.1f;
+	postProcessSettings.NearBlurStrength = 5.0f;
+	postProcessSettings.FarBlurStrength = 5.0f;
+	postProcessSettings.ChromaticDirection = XMFLOAT2(-1.0f, -1.0f);
+	postProcessSettings.ChromaticIntensity = 2.0f;
+	postProcessSettings.ChromaticDistanceScale = 1.5f;
+	postProcessSettings.EffectIntensity = 1.0f;
+	postProcessSettings.EffectType = 0;
+
+	currPostProcessCB->CopyData(0, postProcessSettings);
 }
 
 void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
@@ -649,7 +674,7 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 void TexColumnsApp::BuildShapeGeometry()
 {
 	GeometryGenerator geoGen;
-	GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
+	GeometryGenerator::MeshData box = geoGen.CreateBox(10.0f, 10.0f, 10.0f, 3);
 	GeometryGenerator::MeshData grid = geoGen.CreateGrid(20.0f, 20.0f, 10, 10, 1.0f);
 	//std::vector<GeometryGenerator::MeshData> sponza = geoGen.LoadModel("..\\..\\Models\\glTF\\Sponza.gltf");
 
@@ -836,8 +861,8 @@ void TexColumnsApp::BuildMaterials()
 
 	auto stone0 = std::make_unique<Material>();
 	stone0->Name = "stone0";
-	stone0->MatCBIndex = 1;
-	stone0->DiffuseSrvHeapIndex = 1;
+	stone0->MatCBIndex = 0;
+	stone0->DiffuseSrvHeapIndex = 0;
 	stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
 	stone0->Roughness = 0.3f;
@@ -863,8 +888,8 @@ void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMA
 
 void TexColumnsApp::BuildRenderItems()
 {
-	//BuildRenderItem("box", "stone0", XMMatrixTranslation(0.f, 10.f, 0.f), 2.f);
-	BuildRenderItem("grid", "bricks0", XMMatrixTranslation(0.f, 0.f, 0.f), 1.0f);
+	BuildRenderItem("box", "stone0", XMMatrixTranslation(0.f, 0.f, 0.f));
+	BuildRenderItem("grid", "bricks0", XMMatrixTranslation(0.f, -50.f, 0.f));
 
 	/*for (int i = 0; i < numOfCustomModels; i++)
 		BuildRenderItem("sponza" + i, "tile0", 0.05f);*/
@@ -951,13 +976,13 @@ void TexColumnsApp::BuildPostProcessResources()
 
 	// Create SRV heap
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 1;
+	srvHeapDesc.NumDescriptors = 2;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
 		&srvHeapDesc, IID_PPV_ARGS(&mPostProcessSRVHeap)));
 
-	// Create SRV
+	// Create SRV for render target
 	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(
 		mPostProcessSRVHeap->GetCPUDescriptorHandleForHeapStart());
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -968,13 +993,26 @@ void TexColumnsApp::BuildPostProcessResources()
 	srvDesc.Texture2D.MipLevels = 1;
 	md3dDevice->CreateShaderResourceView(
 		mPostProcessRenderTarget.Get(), &srvDesc, srvHandle);
+
+	// Create SRV for depth buffer
+	srvHandle.Offset(1, mCbvSrvDescriptorSize);
+	srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+	md3dDevice->CreateShaderResourceView(
+		mDepthStencilBuffer.Get(), &srvDesc, srvHandle);
 }
 
 void TexColumnsApp::BuildPostProcessPSO()
 {
-	// Compile shaders
-	mPostProcessShaders["postVS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "VS", "vs_5_0");
-	mPostProcessShaders["postPS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "PS", "ps_5_0");
+	// Compile shaders with error handling
+	try
+	{
+		mPostProcessShaders["postVS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "VS", "vs_5_0");
+		mPostProcessShaders["postPS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "PS", "ps_5_0");
+	}
+	catch (DxException& e)
+	{
+		ThrowIfFailed(S_SERBDNT);
+	}
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
 	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -994,6 +1032,7 @@ void TexColumnsApp::BuildPostProcessPSO()
 	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	psoDesc.DepthStencilState.DepthEnable = false;
 	psoDesc.DepthStencilState.StencilEnable = false;
+	psoDesc.DSVFormat = mDepthStencilFormat;
 	psoDesc.SampleMask = UINT_MAX;
 	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 	psoDesc.NumRenderTargets = 1;
@@ -1005,11 +1044,14 @@ void TexColumnsApp::BuildPostProcessPSO()
 
 void TexColumnsApp::BuildPostProcessRootSignature()
 {
-	CD3DX12_DESCRIPTOR_RANGE srvTable;
-	srvTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+	CD3DX12_DESCRIPTOR_RANGE srvTable[2];
+	srvTable[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0, base texture
+	srvTable[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // t1, depth buffer
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[1];
-	slotRootParameter[0].InitAsDescriptorTable(1, &srvTable, D3D12_SHADER_VISIBILITY_PIXEL);
+	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
+	slotRootParameter[0].InitAsDescriptorTable(1, &srvTable[0], D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[1].InitAsDescriptorTable(1, &srvTable[1], D3D12_SHADER_VISIBILITY_PIXEL);
+	slotRootParameter[2].InitAsConstantBufferView(0, 0, D3D12_SHADER_VISIBILITY_PIXEL); // PostProcessSettings (b0)
 
 	CD3DX12_STATIC_SAMPLER_DESC sampler(
 		0, // shaderRegister
@@ -1018,7 +1060,7 @@ void TexColumnsApp::BuildPostProcessRootSignature()
 		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressV
 		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(1, slotRootParameter,
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter,
 		1, &sampler,
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 

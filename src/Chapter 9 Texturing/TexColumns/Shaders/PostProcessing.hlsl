@@ -1,14 +1,15 @@
 Texture2D gInputImage : register(t0);
-Texture2D<float> gDepthMap : register(t1);
+Texture2D gDepthMap : register(t1);
 
 SamplerState gSampler : register(s0);
 
-cbuffer PostProcessSettings : register(b3)
+cbuffer PostProcessSettings : register(b0)
 {
     // Blur settings
-    float2 gBlurDirection;
-    float gMaxBlurRadius;
-    float gDepthBlurThreshold;
+    float gFocusDistance;
+    float gFocusRange;
+    float gNearBlurStrength;
+    float gFarBlurStrength;
     
     // Chromatic Aberration settings
     float2 gChromaticDirection;
@@ -17,6 +18,7 @@ cbuffer PostProcessSettings : register(b3)
     
     float gEffectIntensity; // 0 - no effects, 1 - full effects
     int gEffectType; // 0 - blur, 1 - aberration, 2 - all
+    float gPadding[2];
 };
 
 struct VertexOut
@@ -52,14 +54,27 @@ float4 ChromaticAberration(float2 texCoord, float intensity, float2 direction)
     return float4(r, g, b, 1.0f);
 }
 
-float4 DepthBlur(float2 texCoord, float blurRadius, float2 direction)
+float4 LensBlur(float2 texCoord, float depth)
 {
-    if (blurRadius <= 0.0f)
+    // Focus distance, 0 in focus, >1 out of focus
+    float focusDist = abs(depth - gFocusDistance);
+    float2 direction = float2(1.0, 1.0);
+    
+    float blurStrength = 0.0f;
+    if (depth < gFocusDistance)
+    {
+        blurStrength = smoothstep(0.0, gFocusRange, focusDist) * gNearBlurStrength;
+    }
+    else
+    {
+        blurStrength = smoothstep(0.0, gFocusRange, focusDist) * gFarBlurStrength;
+    }
+    
+    if (blurStrength <= 0.0f)
         return gInputImage.Sample(gSampler, texCoord);
     
-    float2 texOffset = float2(1.0f / 1280.0f, 1.0f / 720.0f) * blurRadius;
+    float2 texOffset = float2(1.0f / 1280.0f, 1.0f / 720.0f) * blurStrength;
     
-    // Gauss
     const float weights[5] = { 0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f };
     
     float4 color = gInputImage.Sample(gSampler, texCoord) * weights[0];
@@ -76,32 +91,33 @@ float4 DepthBlur(float2 texCoord, float blurRadius, float2 direction)
 
 float4 PS(VertexOut pin) : SV_Target
 {
-    float4 ñolor = gInputImage.Sample(gSampler, pin.TexC);
+    float4 color = gInputImage.Sample(gSampler, pin.TexC);
     
     if (gEffectIntensity <= 0.0f)
-        return ñolor;
+        return color;
     
-    // Blur radius
+    //float depth = 0.5f;
+    //uint width, height;
+    //gDepthMap.GetDimensions(width, height);
+    //if (width > 0 && height > 0)
     float depth = gDepthMap.Sample(gSampler, pin.TexC);
-    float blurFactor = saturate((depth - gDepthBlurThreshold) / (1.0f - gDepthBlurThreshold));
-    float blurRadius = lerp(0.0f, gMaxBlurRadius, blurFactor) * gEffectIntensity;
     
     switch (gEffectType)
     {
-        case 0: // Blur only
-            return DepthBlur(pin.TexC, blurRadius, gBlurDirection);
+        case 0: // Lens blur only
+            return LensBlur(pin.TexC, depth);
             
         case 1: // Chromatic Aberration only
-            return lerp(ñolor,
+            return lerp(color,
                       ChromaticAberration(pin.TexC, gChromaticIntensity, gChromaticDirection),
                       gEffectIntensity);
             
-        case 2: // Blur + Chromatic Aberration
-            float4 blurred = DepthBlur(pin.TexC, blurRadius, gBlurDirection);
+        case 2: // Combined
+            float4 blurred = LensBlur(pin.TexC, depth);
             float4 chromatic = ChromaticAberration(pin.TexC, gChromaticIntensity, gChromaticDirection);
-            return lerp(ñolor, lerp(blurred, chromatic, 0.5f), gEffectIntensity);
+            return lerp(color, lerp(blurred, chromatic, 0.5f), gEffectIntensity);
             
         default:
-            return ñolor;
+            return color;
     }
 }
