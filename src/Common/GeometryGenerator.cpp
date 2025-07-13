@@ -43,8 +43,8 @@ std::vector<GeometryGenerator::MeshData> GeometryGenerator::LoadModel(const std:
 			vertex = XMFLOAT3((float)mesh->mVertices[j].x, (float)mesh->mVertices[j].y, (float)mesh->mVertices[j].z);
 			normal = XMFLOAT3((float)mesh->mNormals[j].x, (float)mesh->mNormals[j].y, (float)mesh->mNormals[j].z);
 			tangent = XMFLOAT3((float)mesh->mTangents[j].x, (float)mesh->mTangents[j].y, (float)mesh->mTangents[j].z);
-			if (mesh->HasTextureCoords(j)) {
-				uvs = XMFLOAT2((float)mesh->mTextureCoords[j]->x, (float)mesh->mTextureCoords[j]->y);
+			if (mesh->HasTextureCoords(0)) {
+				uvs = XMFLOAT2((float)mesh->mTextureCoords[0][j].x, (float)mesh->mTextureCoords[0][j].y);
 			}
 			else {
 				uvs = XMFLOAT2(0.f, 0.f);

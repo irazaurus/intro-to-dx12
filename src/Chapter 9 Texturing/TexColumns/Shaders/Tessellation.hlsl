@@ -202,6 +202,7 @@ DomainOut DS(PatchTess patchTess,
 
 float4 PS(DomainOut pin) : SV_Target
 {
+    
     float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC) * gDiffuseAlbedo;
 	
 #ifdef ALPHA_TEST
@@ -217,7 +218,7 @@ float4 PS(DomainOut pin) : SV_Target
     float3 tangent = normalize(mul(pin.Tangent, (float3x3) gWorld));
     float3 normal = normalize(mul(pin.NormalW, (float3x3) gWorld));
     float3x3 TBN = float3x3(pin.Tangent, bitangent, pin.NormalW);
-	
+    
 	// normal from texture
     float3 normalMap = gNormalMap.Sample(gsamAnisotropicWrap, pin.TexC).rgb;
     normalMap = normalMap * 2.0f - 1.0f;

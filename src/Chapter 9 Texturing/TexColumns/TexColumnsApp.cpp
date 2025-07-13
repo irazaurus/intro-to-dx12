@@ -17,7 +17,7 @@ using namespace DirectX::PackedVector;
 #pragma comment(lib, "D3D12.lib")
 
 // #define DEBUG_VIEW
-//#define DEBUG
+// #define DEBUG
 #define POSTEFFECTS
 
 const int gNumFrameResources = 3;
@@ -131,7 +131,8 @@ private:
 
 	// List of all the render items.
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
-	int numOfCustomModels = 0;
+	int numOfCustomModels1 = 0, numOfCustomModels2 = 0;
+	int ObjCBIndex = 0;
 
 	// Render items divided by PSO.
 	std::vector<RenderItem*> mOpaqueRitems;
@@ -296,7 +297,7 @@ void TexColumnsApp::Draw(const GameTimer& gt)
 	// Specify the buffers we are going to render to.
 	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 #endif
-	
+
 	ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
 	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
@@ -408,16 +409,16 @@ void TexColumnsApp::OnKeyboardInput(const GameTimer& gt)
 	const float dt = gt.DeltaTime();
 
 	if (GetAsyncKeyState('W') & 0x8000)
-		mCamera.Walk(10.0f * dt);
+		mCamera.Walk(20.0f * dt);
 
 	if (GetAsyncKeyState('S') & 0x8000)
-		mCamera.Walk(-10.0f * dt);
+		mCamera.Walk(-20.0f * dt);
 
 	if (GetAsyncKeyState('A') & 0x8000)
-		mCamera.Strafe(-10.0f * dt);
+		mCamera.Strafe(-20.0f * dt);
 
 	if (GetAsyncKeyState('D') & 0x8000)
-		mCamera.Strafe(10.0f * dt);
+		mCamera.Strafe(20.0f * dt);
 
 	mCamera.UpdateViewMatrix();
 }
@@ -532,6 +533,8 @@ void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	currPassCB->CopyData(0, mMainPassCB);
 }
 
+
+
 void TexColumnsApp::LoadTextures()
 {
 	auto bricksTex = std::make_unique<Texture>();
@@ -560,6 +563,64 @@ void TexColumnsApp::LoadTextures()
 	mTextures[bricksTex->Name] = std::move(bricksTex);
 	mTextures[bricksNorm->Name] = std::move(bricksNorm);
 	mTextures[bricksDisp->Name] = std::move(bricksDisp);
+
+	// baronyx
+
+	auto baryonyx_diffuse = std::make_unique<Texture>();
+	baryonyx_diffuse->Name = "baryonyx_diffuse";
+	baryonyx_diffuse->Filename = L"../../Textures/baryonyx_diffuse.dds";
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), baryonyx_diffuse->Filename.c_str(),
+		baryonyx_diffuse->Resource, baryonyx_diffuse->UploadHeap));
+
+	mTextures[baryonyx_diffuse->Name] = std::move(baryonyx_diffuse);
+
+	auto baryonyx_norm = std::make_unique<Texture>();
+	baryonyx_norm->Name = "baryonyx_norm";
+	baryonyx_norm->Filename = L"../../Textures/baryonyx_diffuse.dds";
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), baryonyx_norm->Filename.c_str(),
+		baryonyx_norm->Resource, baryonyx_norm->UploadHeap));
+
+	mTextures[baryonyx_norm->Name] = std::move(baryonyx_norm);
+
+	auto baryonyx_disp = std::make_unique<Texture>();
+	baryonyx_disp->Name = "baryonyx_disp";
+	baryonyx_disp->Filename = L"../../Textures/baryonyx_diffuse.dds";
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), baryonyx_disp->Filename.c_str(),
+		baryonyx_disp->Resource, baryonyx_disp->UploadHeap));
+
+	mTextures[baryonyx_disp->Name] = std::move(baryonyx_disp);
+
+	// GorgosuchText
+
+	auto GorgosuchText = std::make_unique<Texture>();
+	GorgosuchText->Name = "GorgosuchText";
+	GorgosuchText->Filename = L"../../Textures/GorgosuchText.dds";
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), GorgosuchText->Filename.c_str(),
+		GorgosuchText->Resource, GorgosuchText->UploadHeap));
+
+	auto GorgosuchNorm = std::make_unique<Texture>();
+	GorgosuchNorm->Name = "GorgosuchNorm";
+	GorgosuchNorm->Filename = L"../../Textures/GorgosuchNorm.dds";
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), GorgosuchNorm->Filename.c_str(),
+		GorgosuchNorm->Resource, GorgosuchNorm->UploadHeap));
+
+	auto GorgosuchDisp = std::make_unique<Texture>();
+	GorgosuchDisp->Name = "GorgosuchDisp";
+	GorgosuchDisp->Filename = L"../../Textures/GorgosuchText.dds";
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), GorgosuchDisp->Filename.c_str(),
+		GorgosuchDisp->Resource, GorgosuchDisp->UploadHeap));
+
+	assert(GorgosuchDisp != nullptr);
+
+	mTextures[GorgosuchText->Name] = std::move(GorgosuchText);
+	mTextures[GorgosuchNorm->Name] = std::move(GorgosuchNorm);
+	mTextures[GorgosuchDisp->Name] = std::move(GorgosuchDisp);
 }
 
 void TexColumnsApp::BuildRootSignature()
@@ -611,7 +672,7 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	// Create the SRV heap.
 	//
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 5;
+	srvHeapDesc.NumDescriptors = 9;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -624,6 +685,12 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	auto diffuseTex = mTextures["bricksTex"]->Resource;
 	auto normTex = mTextures["bricksNormTex"]->Resource;
 	auto displaceTex = mTextures["bricksDispTex"]->Resource;
+	auto baryonyx_diffuse = mTextures["baryonyx_diffuse"]->Resource;
+	auto baryonyx_norm = mTextures["baryonyx_norm"]->Resource;
+	auto baryonyx_disp = mTextures["baryonyx_disp"]->Resource;
+	auto GorgosuchText = mTextures["GorgosuchText"]->Resource;
+	auto GorgosuchNorm = mTextures["GorgosuchNorm"]->Resource;
+	auto GorgosuchDisp = mTextures["GorgosuchDisp"]->Resource;
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -647,6 +714,48 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	srvDesc.Format = displaceTex->GetDesc().Format;
 	srvDesc.Texture2D.MipLevels = displaceTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(displaceTex.Get(), &srvDesc, hDescriptor);
+
+	// next descriptor, baryonyx_diffuse
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = baryonyx_diffuse->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = baryonyx_diffuse->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(baryonyx_diffuse.Get(), &srvDesc, hDescriptor);
+
+	// next descriptor, baryonyx_norm
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = baryonyx_norm->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = baryonyx_norm->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(baryonyx_norm.Get(), &srvDesc, hDescriptor);
+
+	// next descriptor, baryonyx_disp
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = baryonyx_disp->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = baryonyx_disp->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(baryonyx_disp.Get(), &srvDesc, hDescriptor);
+
+	// next descriptor, GorgosuchText
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = GorgosuchText->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = GorgosuchText->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(GorgosuchText.Get(), &srvDesc, hDescriptor);
+
+	// next descriptor, GorgosuchNorm
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = GorgosuchNorm->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = GorgosuchNorm->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(GorgosuchNorm.Get(), &srvDesc, hDescriptor);
+
+	// next descriptor, GorgosuchDisp
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = GorgosuchDisp->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = GorgosuchDisp->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(GorgosuchDisp.Get(), &srvDesc, hDescriptor);
 }
 
 void TexColumnsApp::BuildShadersAndInputLayout()
@@ -675,8 +784,9 @@ void TexColumnsApp::BuildShapeGeometry()
 {
 	GeometryGenerator geoGen;
 	GeometryGenerator::MeshData box = geoGen.CreateBox(10.0f, 10.0f, 10.0f, 3);
-	GeometryGenerator::MeshData grid = geoGen.CreateGrid(20.0f, 20.0f, 10, 10, 1.0f);
-	//std::vector<GeometryGenerator::MeshData> sponza = geoGen.LoadModel("..\\..\\Models\\glTF\\Sponza.gltf");
+	GeometryGenerator::MeshData grid = geoGen.CreateGrid(50.0f, 50.0f, 50, 50, 1.0f);
+	std::vector<GeometryGenerator::MeshData> sponza = geoGen.LoadModel("..\\..\\Models\\Baryonyx.obj");
+	std::vector<GeometryGenerator::MeshData> gorg = geoGen.LoadModel("..\\..\\Models\\trex.obj");
 
 	//
 	// We are concatenating all the geometry into one big vertex/index buffer.  So
@@ -686,12 +796,18 @@ void TexColumnsApp::BuildShapeGeometry()
 	// Cache the vertex offsets to each object in the concatenated vertex buffer.
 	UINT boxVertexOffset = 0;
 	UINT gridVertexOffset = (UINT)box.Vertices.size();
-	//UINT sponzaVertexOffset = gridVertexOffset + (UINT)grid.Vertices.size();
+	UINT sponzaVertexOffset = gridVertexOffset + (UINT)grid.Vertices.size();
+	UINT gorgVertexOffset = sponzaVertexOffset;
+	for (auto sub : sponza)
+		gorgVertexOffset += (UINT)sub.Vertices.size();
 
 	// Cache the starting index for each object in the concatenated index buffer.
 	UINT boxIndexOffset = 0;
 	UINT gridIndexOffset = (UINT)box.Indices32.size();
-	//UINT sponzaIndexOffset = gridIndexOffset + (UINT)grid.Indices32.size();
+	UINT sponzaIndexOffset = gridIndexOffset + (UINT)grid.Indices32.size();
+	UINT gorgIndexOffset = sponzaIndexOffset;
+	for (auto sub : sponza)
+		gorgIndexOffset += (UINT)sub.Indices32.size();
 
 	SubmeshGeometry boxSubmesh;
 	boxSubmesh.IndexCount = (UINT)box.Indices32.size();
@@ -704,7 +820,7 @@ void TexColumnsApp::BuildShapeGeometry()
 	gridSubmesh.BaseVertexLocation = gridVertexOffset;
 
 	// vector of custom submeshes
-	/*std::vector<SubmeshGeometry> sponzaSubmeshes;
+	std::vector<SubmeshGeometry> sponzaSubmeshes;
 	UINT indexOffset = 0, vertexOffset = 0;
 	size_t vertSize = 0;
 	for (GeometryGenerator::MeshData mesh : sponza) {
@@ -716,7 +832,21 @@ void TexColumnsApp::BuildShapeGeometry()
 		vertexOffset += (UINT)mesh.Vertices.size();
 		vertSize += mesh.Vertices.size();
 		sponzaSubmeshes.push_back(sponzaSubmesh);
-	}*/
+	}
+
+	// vector of custom submeshes
+	std::vector<SubmeshGeometry> gorgSubmeshes;
+	indexOffset = 0, vertexOffset = 0;
+	for (GeometryGenerator::MeshData mesh : gorg) {
+		SubmeshGeometry gorgSubmesh;
+		gorgSubmesh.IndexCount = (UINT)mesh.Indices32.size();
+		gorgSubmesh.StartIndexLocation = gorgIndexOffset + indexOffset;
+		gorgSubmesh.BaseVertexLocation = gorgVertexOffset + vertexOffset;
+		indexOffset += (UINT)mesh.Indices32.size();
+		vertexOffset += (UINT)mesh.Vertices.size();
+		vertSize += mesh.Vertices.size();
+		gorgSubmeshes.push_back(gorgSubmesh);
+	}
 
 	//
 	// Extract the vertex elements we are interested in and pack the
@@ -725,7 +855,8 @@ void TexColumnsApp::BuildShapeGeometry()
 
 	auto totalVertexCount =
 		box.Vertices.size() +
-		grid.Vertices.size();
+		grid.Vertices.size() +
+		vertSize;
 
 	std::vector<Vertex> vertices(totalVertexCount);
 
@@ -745,7 +876,7 @@ void TexColumnsApp::BuildShapeGeometry()
 		vertices[k].TexC = grid.Vertices[i].TexC;
 	}
 	// for custom submeshes
-	/*for (GeometryGenerator::MeshData mesh : sponza) {
+	for (GeometryGenerator::MeshData mesh : sponza) {
 		for (size_t i = 0; i < mesh.Vertices.size(); ++i, ++k)
 		{
 			vertices[k].Tangent = mesh.Vertices[i].TangentU;
@@ -753,13 +884,24 @@ void TexColumnsApp::BuildShapeGeometry()
 			vertices[k].Normal = mesh.Vertices[i].Normal;
 			vertices[k].TexC = mesh.Vertices[i].TexC;
 		}
-	}*/
+	}
+	for (GeometryGenerator::MeshData mesh : gorg) {
+		for (size_t i = 0; i < mesh.Vertices.size(); ++i, ++k)
+		{
+			vertices[k].Tangent = mesh.Vertices[i].TangentU;
+			vertices[k].Pos = mesh.Vertices[i].Position;
+			vertices[k].Normal = mesh.Vertices[i].Normal;
+			vertices[k].TexC = mesh.Vertices[i].TexC;
+		}
+	}
 
 	std::vector<std::uint16_t> indices;
 	indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
 	indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
-	/*for (GeometryGenerator::MeshData mesh : sponza)
-		indices.insert(indices.end(), std::begin(mesh.GetIndices16()), std::end(mesh.GetIndices16()));*/
+	for (GeometryGenerator::MeshData mesh : sponza)
+		indices.insert(indices.end(), std::begin(mesh.GetIndices16()), std::end(mesh.GetIndices16()));
+	for (GeometryGenerator::MeshData mesh : gorg)
+		indices.insert(indices.end(), std::begin(mesh.GetIndices16()), std::end(mesh.GetIndices16()));
 
 	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
 	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
@@ -786,8 +928,10 @@ void TexColumnsApp::BuildShapeGeometry()
 
 	geo->DrawArgs["box"] = boxSubmesh;
 	geo->DrawArgs["grid"] = gridSubmesh;
-	/*for (int i = 0; i < sponzaSubmeshes.size(); i++, numOfCustomModels++)
-		geo->DrawArgs["sponza" + i] = sponzaSubmeshes.at(i);*/
+	for (int i = 0; i < sponzaSubmeshes.size(); i++, numOfCustomModels1++)
+		geo->DrawArgs["sponza" + i] = sponzaSubmeshes.at(i);
+	for (int i = 0; i < gorgSubmeshes.size(); i++, numOfCustomModels2++)
+		geo->DrawArgs["gorg" + i] = gorgSubmeshes.at(i);
 
 	mGeometries[geo->Name] = std::move(geo);
 }
@@ -854,21 +998,30 @@ void TexColumnsApp::BuildMaterials()
 	auto bricks0 = std::make_unique<Material>();
 	bricks0->Name = "bricks0";
 	bricks0->MatCBIndex = 0;
-	bricks0->DiffuseSrvHeapIndex = 0;
+	bricks0->DiffuseSrvHeapIndex = 3;
 	bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	bricks0->Roughness = 0.1f;
 
 	auto stone0 = std::make_unique<Material>();
 	stone0->Name = "stone0";
-	stone0->MatCBIndex = 0;
+	stone0->MatCBIndex = 1;
 	stone0->DiffuseSrvHeapIndex = 0;
 	stone0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
 	stone0->Roughness = 0.3f;
 
+	auto gorg = std::make_unique<Material>();
+	gorg->Name = "gorg";
+	gorg->MatCBIndex = 2;
+	gorg->DiffuseSrvHeapIndex = 6;
+	gorg->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	gorg->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+	gorg->Roughness = 0.3f;
+
 	mMaterials["bricks0"] = std::move(bricks0);
 	mMaterials["stone0"] = std::move(stone0);
+	mMaterials["gorg"] = std::move(gorg);
 }
 
 void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMATRIX translate, float scale, float scaleTex)
@@ -876,7 +1029,7 @@ void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMA
 	auto ptr = std::make_unique<RenderItem>();
 	XMStoreFloat4x4(&ptr->World, XMMatrixScaling(scale, scale, scale) * translate);
 	XMStoreFloat4x4(&ptr->TexTransform, XMMatrixScaling(scaleTex, scaleTex, scaleTex));
-	ptr->ObjCBIndex = 0;
+	ptr->ObjCBIndex = ObjCBIndex++;
 	ptr->Mat = mMaterials[material].get();
 	ptr->Geo = mGeometries["shapeGeo"].get();
 	ptr->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
@@ -888,12 +1041,27 @@ void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMA
 
 void TexColumnsApp::BuildRenderItems()
 {
-	BuildRenderItem("box", "stone0", XMMatrixTranslation(0.f, 0.f, 0.f));
-	BuildRenderItem("grid", "bricks0", XMMatrixTranslation(0.f, -50.f, 0.f));
+	BuildRenderItem("box", "stone0", XMMatrixTranslation(15.f, -45.f, 0.f));
+	BuildRenderItem("grid", "stone0", XMMatrixTranslation(0.f, -50.f, 10.f));
 
-	/*for (int i = 0; i < numOfCustomModels; i++)
-		BuildRenderItem("sponza" + i, "tile0", 0.05f);*/
+	for (int i = 0; i < numOfCustomModels1; i++)
+	{
+		BuildRenderItem("sponza" + i, "bricks0", XMMatrixTranslation(0.f, -50.f, 20.f));
+	}
+	for (int i = 0; i < numOfCustomModels1; i++)
+	{
+		BuildRenderItem("sponza" + i, "bricks0", XMMatrixTranslation(-30.f, -50.f, 40.f));
+	}
+	for (int i = 0; i < numOfCustomModels1; i++)
+	{
+		BuildRenderItem("sponza" + i, "bricks0", XMMatrixTranslation(30.f, -50.f, 0.f));
+	}
 
+	for (int i = 0; i < numOfCustomModels2; i++)
+	{
+		BuildRenderItem("gorg" + i, "gorg", XMMatrixTranslation(0.f, 0.f, 0.f));
+	}
+		
 		// All the render items are opaque.
 	for (auto& e : mAllRitems)
 		mOpaqueRitems.push_back(e.get());
@@ -908,21 +1076,30 @@ void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const st
 	auto matCB = mCurrFrameResource->MaterialCB->Resource();
 
 	// For each render item...
-	for (size_t i = 0; i < ritems.size(); ++i)
+	for (const auto& ri : ritems)
 	{
-		auto ri = ritems[i];
+		Material* mat = ri->Mat;
+		UINT textureIndex = mat->DiffuseSrvHeapIndex;
+
+		// register texture in t0
+		CD3DX12_GPU_DESCRIPTOR_HANDLE texHandle(
+			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+			textureIndex,  // Смещение в куче дескрипторов
+			mCbvSrvDescriptorSize
+		);
+		cmdList->SetGraphicsRootDescriptorTable(0, texHandle);
 
 		cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
 		cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
 		cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
-		CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-		tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+		//CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		//tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
 
 		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
 		D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
 
-		cmdList->SetGraphicsRootDescriptorTable(0, tex);
+		//cmdList->SetGraphicsRootDescriptorTable(0, tex);
 		cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
 		cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
