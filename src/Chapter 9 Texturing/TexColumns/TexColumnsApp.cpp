@@ -115,7 +115,7 @@ private:
 
 	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
 	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
-	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
+	std::vector<std::unique_ptr<Texture>> mTextures;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
 	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
 
@@ -542,7 +542,7 @@ void TexColumnsApp::LoadTexture(std::string name, std::wstring filename)
 	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
 		mCommandList.Get(), tex->Filename.c_str(),
 		tex->Resource, tex->UploadHeap));
-	mTextures[tex->Name] = std::move(tex);
+	mTextures.push_back(std::move(tex));
 }
 
 void TexColumnsApp::LoadTextures()
@@ -623,80 +623,27 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	//
 	CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
-	auto diffuseTex = mTextures["bricksTex"]->Resource;
-	auto normTex = mTextures["bricksNormTex"]->Resource;
-	auto displaceTex = mTextures["bricksDispTex"]->Resource;
-	auto baryonyx_diffuse = mTextures["baryonyx_diffuse"]->Resource;
-	auto baryonyx_norm = mTextures["baryonyx_norm"]->Resource;
-	auto baryonyx_disp = mTextures["baryonyx_disp"]->Resource;
-	auto GorgosuchText = mTextures["GorgosuchText"]->Resource;
-	auto GorgosuchNorm = mTextures["GorgosuchNorm"]->Resource;
-	auto GorgosuchDisp = mTextures["GorgosuchDisp"]->Resource;
+	auto& diffuseTex = mTextures[0]->Resource;
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.Format = diffuseTex->GetDesc().Format;
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Texture2D.MostDetailedMip = 0;
-	srvDesc.Texture2D.MipLevels = diffuseTex->GetDesc().MipLevels;
 	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+
+	srvDesc.Format = diffuseTex->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = diffuseTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(diffuseTex.Get(), &srvDesc, hDescriptor);
 
-	// next descriptor, norm
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = normTex->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = normTex->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(normTex.Get(), &srvDesc, hDescriptor);
-
-	// next descriptor, displace
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = displaceTex->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = displaceTex->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(displaceTex.Get(), &srvDesc, hDescriptor);
-
-	// next descriptor, baryonyx_diffuse
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = baryonyx_diffuse->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = baryonyx_diffuse->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(baryonyx_diffuse.Get(), &srvDesc, hDescriptor);
-
-	// next descriptor, baryonyx_norm
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = baryonyx_norm->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = baryonyx_norm->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(baryonyx_norm.Get(), &srvDesc, hDescriptor);
-
-	// next descriptor, baryonyx_disp
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = baryonyx_disp->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = baryonyx_disp->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(baryonyx_disp.Get(), &srvDesc, hDescriptor);
-
-	// next descriptor, GorgosuchText
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = GorgosuchText->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = GorgosuchText->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(GorgosuchText.Get(), &srvDesc, hDescriptor);
-
-	// next descriptor, GorgosuchNorm
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = GorgosuchNorm->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = GorgosuchNorm->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(GorgosuchNorm.Get(), &srvDesc, hDescriptor);
-
-	// next descriptor, GorgosuchDisp
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	srvDesc.Format = GorgosuchDisp->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = GorgosuchDisp->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(GorgosuchDisp.Get(), &srvDesc, hDescriptor);
+	// other descriptors
+	for (int i = 1; i < mTextures.size(); i++)
+	{
+		auto& tex = mTextures[i]->Resource;
+		hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+		srvDesc.Format = tex->GetDesc().Format;
+		srvDesc.Texture2D.MipLevels = tex->GetDesc().MipLevels;
+		md3dDevice->CreateShaderResourceView(tex.Get(), &srvDesc, hDescriptor);
+	}
 }
 
 void TexColumnsApp::BuildShadersAndInputLayout()
