@@ -83,6 +83,7 @@ private:
 	void UpdateMainPassCB(const GameTimer& gt);
 	void UpdatePostProcessCB(const GameTimer& gt);
 
+	void LoadTexture(std::string name, std::wstring filename);
 	void LoadTextures();
 	void BuildRootSignature();
 	void BuildDescriptorHeaps();
@@ -533,94 +534,34 @@ void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	currPassCB->CopyData(0, mMainPassCB);
 }
 
-
+void TexColumnsApp::LoadTexture(std::string name, std::wstring filename)
+{
+	auto tex = std::make_unique<Texture>();
+	tex->Name = name;
+	tex->Filename = filename;
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), tex->Filename.c_str(),
+		tex->Resource, tex->UploadHeap));
+	mTextures[tex->Name] = std::move(tex);
+}
 
 void TexColumnsApp::LoadTextures()
 {
-	auto bricksTex = std::make_unique<Texture>();
-	bricksTex->Name = "bricksTex";
-	bricksTex->Filename = L"../../Textures/tile.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), bricksTex->Filename.c_str(),
-		bricksTex->Resource, bricksTex->UploadHeap));
-
-	auto bricksNorm = std::make_unique<Texture>();
-	bricksNorm->Name = "bricksNormTex";
-	bricksNorm->Filename = L"../../Textures/tile_nmap.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), bricksNorm->Filename.c_str(),
-		bricksNorm->Resource, bricksNorm->UploadHeap));
-
-	auto bricksDisp = std::make_unique<Texture>();
-	bricksDisp->Name = "bricksDispTex";
-	bricksDisp->Filename = L"../../Textures/checkboard.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), bricksDisp->Filename.c_str(),
-		bricksDisp->Resource, bricksDisp->UploadHeap));
-
-	assert(bricksDisp != nullptr);
-
-	mTextures[bricksTex->Name] = std::move(bricksTex);
-	mTextures[bricksNorm->Name] = std::move(bricksNorm);
-	mTextures[bricksDisp->Name] = std::move(bricksDisp);
+	LoadTexture("bricksTex", L"../../Textures/tile.dds");
+	LoadTexture("bricksNormTex", L"../../Textures/tile_nmap.dds");
+	LoadTexture("bricksDispTex", L"../../Textures/checkboard.dds");
 
 	// baronyx
 
-	auto baryonyx_diffuse = std::make_unique<Texture>();
-	baryonyx_diffuse->Name = "baryonyx_diffuse";
-	baryonyx_diffuse->Filename = L"../../Textures/baryonyx_diffuse.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), baryonyx_diffuse->Filename.c_str(),
-		baryonyx_diffuse->Resource, baryonyx_diffuse->UploadHeap));
-
-	mTextures[baryonyx_diffuse->Name] = std::move(baryonyx_diffuse);
-
-	auto baryonyx_norm = std::make_unique<Texture>();
-	baryonyx_norm->Name = "baryonyx_norm";
-	baryonyx_norm->Filename = L"../../Textures/baryonyx_diffuse.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), baryonyx_norm->Filename.c_str(),
-		baryonyx_norm->Resource, baryonyx_norm->UploadHeap));
-
-	mTextures[baryonyx_norm->Name] = std::move(baryonyx_norm);
-
-	auto baryonyx_disp = std::make_unique<Texture>();
-	baryonyx_disp->Name = "baryonyx_disp";
-	baryonyx_disp->Filename = L"../../Textures/baryonyx_diffuse.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), baryonyx_disp->Filename.c_str(),
-		baryonyx_disp->Resource, baryonyx_disp->UploadHeap));
-
-	mTextures[baryonyx_disp->Name] = std::move(baryonyx_disp);
+	LoadTexture("baryonyx_diffuse", L"../../Textures/baryonyx_diffuse.dds");
+	LoadTexture("baryonyx_norm", L"../../Textures/baryonyx_diffuse.dds");
+	LoadTexture("baryonyx_disp", L"../../Textures/baryonyx_diffuse.dds");
 
 	// GorgosuchText
 
-	auto GorgosuchText = std::make_unique<Texture>();
-	GorgosuchText->Name = "GorgosuchText";
-	GorgosuchText->Filename = L"../../Textures/GorgosuchText.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), GorgosuchText->Filename.c_str(),
-		GorgosuchText->Resource, GorgosuchText->UploadHeap));
-
-	auto GorgosuchNorm = std::make_unique<Texture>();
-	GorgosuchNorm->Name = "GorgosuchNorm";
-	GorgosuchNorm->Filename = L"../../Textures/GorgosuchNorm.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), GorgosuchNorm->Filename.c_str(),
-		GorgosuchNorm->Resource, GorgosuchNorm->UploadHeap));
-
-	auto GorgosuchDisp = std::make_unique<Texture>();
-	GorgosuchDisp->Name = "GorgosuchDisp";
-	GorgosuchDisp->Filename = L"../../Textures/GorgosuchText.dds";
-	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-		mCommandList.Get(), GorgosuchDisp->Filename.c_str(),
-		GorgosuchDisp->Resource, GorgosuchDisp->UploadHeap));
-
-	assert(GorgosuchDisp != nullptr);
-
-	mTextures[GorgosuchText->Name] = std::move(GorgosuchText);
-	mTextures[GorgosuchNorm->Name] = std::move(GorgosuchNorm);
-	mTextures[GorgosuchDisp->Name] = std::move(GorgosuchDisp);
+	LoadTexture("GorgosuchText", L"../../Textures/GorgosuchText.dds");
+	LoadTexture("GorgosuchNorm", L"../../Textures/GorgosuchNorm.dds");
+	LoadTexture("GorgosuchDisp", L"../../Textures/GorgosuchText.dds");
 }
 
 void TexColumnsApp::BuildRootSignature()
