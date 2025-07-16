@@ -11,7 +11,7 @@
 
 using namespace DirectX;
 
-std::vector<GeometryGenerator::MeshData> GeometryGenerator::LoadModel(const std::string& pFile)
+GeometryGenerator::MeshData GeometryGenerator::LoadModel(const std::string& pFile)
 {
 	Assimp::Importer imp;
 	const aiScene* scene = imp.ReadFile(pFile,
@@ -21,7 +21,7 @@ std::vector<GeometryGenerator::MeshData> GeometryGenerator::LoadModel(const std:
 		aiProcess_Triangulate |
 		aiProcess_GenNormals);
 
-	std::vector<MeshData> meshData;
+	MeshData meshData;
 
 	if (nullptr == scene) {
 		ThrowIfFailed(E_FAIL);
@@ -29,15 +29,22 @@ std::vector<GeometryGenerator::MeshData> GeometryGenerator::LoadModel(const std:
 	}
 	if (!scene->HasMeshes()) return meshData;
 
+	// name
+	size_t dotIndex = pFile.find_last_of(".");
+	size_t slashIndex = pFile.find_last_of("/\\");
+	slashIndex++;
+	std::string nameOfModel = pFile.substr(slashIndex, dotIndex - slashIndex);
+	meshData.name = nameOfModel;
+
 	// extracting all of the meshes
 	for (size_t i = 0; i < scene->mNumMeshes; i++)
 	{
 		const auto mesh = scene->mMeshes[i];
-		MeshData tempMesh;
+		
 		// verteces
 		XMFLOAT3 vertex, normal, tangent;
 		XMFLOAT2 uvs;
-		tempMesh.Vertices.reserve(mesh->mNumVertices);
+		meshData.Vertices.reserve(mesh->mNumVertices);
 		for (size_t j = 0; j < mesh->mNumVertices; j++)
 		{
 			vertex = XMFLOAT3((float)mesh->mVertices[j].x, (float)mesh->mVertices[j].y, (float)mesh->mVertices[j].z);
@@ -49,21 +56,19 @@ std::vector<GeometryGenerator::MeshData> GeometryGenerator::LoadModel(const std:
 			else {
 				uvs = XMFLOAT2(0.f, 0.f);
 			}
-			tempMesh.Vertices.push_back(Vertex(vertex, normal, tangent, uvs));
+			meshData.Vertices.push_back(Vertex(vertex, normal, tangent, uvs));
 		}
 
 		// indices
-		tempMesh.Indices32.reserve(mesh->mNumFaces * 3);
+		meshData.Indices32.reserve(mesh->mNumFaces * 3);
 		for (size_t j = 0; j < mesh->mNumFaces; j++)
 		{
 			const auto& face = mesh->mFaces[j];
 			assert(face.mNumIndices == 3);
-			tempMesh.Indices32.push_back(face.mIndices[0]);
-			tempMesh.Indices32.push_back(face.mIndices[1]);
-			tempMesh.Indices32.push_back(face.mIndices[2]);
+			meshData.Indices32.push_back(face.mIndices[0]);
+			meshData.Indices32.push_back(face.mIndices[1]);
+			meshData.Indices32.push_back(face.mIndices[2]);
 		}
-
-		meshData.emplace_back(tempMesh);
 	}
 
 	return meshData;
@@ -72,6 +77,7 @@ std::vector<GeometryGenerator::MeshData> GeometryGenerator::LoadModel(const std:
 GeometryGenerator::MeshData GeometryGenerator::CreateBox(float width, float height, float depth, uint32 numSubdivisions)
 {
     MeshData meshData;
+	meshData.name = "box";
 
     //
 	// Create the vertices.
@@ -613,6 +619,7 @@ void GeometryGenerator::BuildCylinderBottomCap(float bottomRadius, float topRadi
 GeometryGenerator::MeshData GeometryGenerator::CreateGrid(float width, float depth, uint32 m, uint32 n, float uvScale)
 {
     MeshData meshData;
+	meshData.name = "grid";
 
 	uint32 vertexCount = m*n;
 	uint32 faceCount   = (m-1)*(n-1)*2;

@@ -18,7 +18,7 @@ using namespace DirectX::PackedVector;
 
 // #define DEBUG_VIEW
 // #define DEBUG
-#define POSTEFFECTS
+// #define POSTEFFECTS
 
 const int gNumFrameResources = 3;
 
@@ -671,109 +671,48 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 void TexColumnsApp::BuildShapeGeometry()
 {
 	GeometryGenerator geoGen;
-	GeometryGenerator::MeshData box = geoGen.CreateBox(10.0f, 10.0f, 10.0f, 3);
-	GeometryGenerator::MeshData grid = geoGen.CreateGrid(50.0f, 50.0f, 50, 50, 1.0f);
-	std::vector<GeometryGenerator::MeshData> sponza = geoGen.LoadModel("..\\..\\Models\\Baryonyx.obj");
-	std::vector<GeometryGenerator::MeshData> gorg = geoGen.LoadModel("..\\..\\Models\\trex.obj");
+	std::vector<GeometryGenerator::MeshData> allMeshData;
+
+	// if you want to generate new model -- generate it here
+	allMeshData.push_back( geoGen.CreateGrid(50.0f, 50.0f, 50, 50, 1.0f) );           // grid
+	allMeshData.push_back( geoGen.CreateBox(10.0f, 10.0f, 10.0f, 3) );                // box
+	allMeshData.push_back( geoGen.LoadModel("..\\..\\Models\\trex.obj"));             // trex
+	allMeshData.push_back( geoGen.LoadModel("..\\..\\Models\\Baryonyx.obj"));         // baronyx
 
 	//
 	// We are concatenating all the geometry into one big vertex/index buffer.  So
 	// define the regions in the buffer each submesh covers.
 	//
 
-	// Cache the vertex offsets to each object in the concatenated vertex buffer.
-	UINT boxVertexOffset = 0;
-	UINT gridVertexOffset = (UINT)box.Vertices.size();
-	UINT sponzaVertexOffset = gridVertexOffset + (UINT)grid.Vertices.size();
-	UINT gorgVertexOffset = sponzaVertexOffset;
-	for (auto sub : sponza)
-		gorgVertexOffset += (UINT)sub.Vertices.size();
-
-	// Cache the starting index for each object in the concatenated index buffer.
-	UINT boxIndexOffset = 0;
-	UINT gridIndexOffset = (UINT)box.Indices32.size();
-	UINT sponzaIndexOffset = gridIndexOffset + (UINT)grid.Indices32.size();
-	UINT gorgIndexOffset = sponzaIndexOffset;
-	for (auto sub : sponza)
-		gorgIndexOffset += (UINT)sub.Indices32.size();
-
-	SubmeshGeometry boxSubmesh;
-	boxSubmesh.IndexCount = (UINT)box.Indices32.size();
-	boxSubmesh.StartIndexLocation = boxIndexOffset;
-	boxSubmesh.BaseVertexLocation = boxVertexOffset;
-
-	SubmeshGeometry gridSubmesh;
-	gridSubmesh.IndexCount = (UINT)grid.Indices32.size();
-	gridSubmesh.StartIndexLocation = gridIndexOffset;
-	gridSubmesh.BaseVertexLocation = gridVertexOffset;
-
-	// vector of custom submeshes
-	std::vector<SubmeshGeometry> sponzaSubmeshes;
-	UINT indexOffset = 0, vertexOffset = 0;
-	size_t vertSize = 0;
-	for (GeometryGenerator::MeshData mesh : sponza) {
-		SubmeshGeometry sponzaSubmesh;
-		sponzaSubmesh.IndexCount = (UINT)mesh.Indices32.size();
-		sponzaSubmesh.StartIndexLocation = sponzaIndexOffset + indexOffset;
-		sponzaSubmesh.BaseVertexLocation = sponzaVertexOffset + vertexOffset;
-		indexOffset += (UINT)mesh.Indices32.size();
-		vertexOffset += (UINT)mesh.Vertices.size();
-		vertSize += mesh.Vertices.size();
-		sponzaSubmeshes.push_back(sponzaSubmesh);
+	// Cache the vertex offsets to each object in the concatenated vertex and index buffer.
+	std::vector<UINT> vertexOffsets;
+	vertexOffsets.push_back(0);
+	std::vector<UINT> indexOffsets;
+	indexOffsets.push_back(0);
+	for (size_t i = 1; i < allMeshData.size(); i++)
+	{
+		vertexOffsets.push_back(vertexOffsets.at(i - 1) + (UINT) allMeshData.at(i - 1).Vertices.size());
+		indexOffsets.push_back(indexOffsets.at(i - 1) + (UINT) allMeshData.at(i - 1).Indices32.size());
+	}
+	
+	// generating submeshes
+	size_t totalVertexCount = 0;
+	std::vector<SubmeshGeometry> allSubmeshes;
+	for (size_t i = 0; i < allMeshData.size(); i++)
+	{
+		SubmeshGeometry submesh;
+		auto& mesh = allMeshData.at(i);
+		submesh.IndexCount = (UINT)mesh.Indices32.size();
+		submesh.StartIndexLocation = indexOffsets.at(i);
+		submesh.BaseVertexLocation = vertexOffsets.at(i);
+		allSubmeshes.push_back(submesh);
+		totalVertexCount += mesh.Vertices.size();
 	}
 
-	// vector of custom submeshes
-	std::vector<SubmeshGeometry> gorgSubmeshes;
-	indexOffset = 0, vertexOffset = 0;
-	for (GeometryGenerator::MeshData mesh : gorg) {
-		SubmeshGeometry gorgSubmesh;
-		gorgSubmesh.IndexCount = (UINT)mesh.Indices32.size();
-		gorgSubmesh.StartIndexLocation = gorgIndexOffset + indexOffset;
-		gorgSubmesh.BaseVertexLocation = gorgVertexOffset + vertexOffset;
-		indexOffset += (UINT)mesh.Indices32.size();
-		vertexOffset += (UINT)mesh.Vertices.size();
-		vertSize += mesh.Vertices.size();
-		gorgSubmeshes.push_back(gorgSubmesh);
-	}
-
-	//
-	// Extract the vertex elements we are interested in and pack the
-	// vertices of all the meshes into one vertex buffer.
-	//
-
-	auto totalVertexCount =
-		box.Vertices.size() +
-		grid.Vertices.size() +
-		vertSize;
-
+	// pack the vertices of all the meshes into one vertex buffer
 	std::vector<Vertex> vertices(totalVertexCount);
-
 	UINT k = 0;
-	for (size_t i = 0; i < box.Vertices.size(); ++i, ++k)
-	{
-		vertices[k].Tangent = box.Vertices[i].TangentU;
-		vertices[k].Pos = box.Vertices[i].Position;
-		vertices[k].Normal = box.Vertices[i].Normal;
-		vertices[k].TexC = box.Vertices[i].TexC;
-	}
-	for (size_t i = 0; i < grid.Vertices.size(); ++i, ++k)
-	{
-		vertices[k].Tangent = grid.Vertices[i].TangentU;
-		vertices[k].Pos = grid.Vertices[i].Position;
-		vertices[k].Normal = grid.Vertices[i].Normal;
-		vertices[k].TexC = grid.Vertices[i].TexC;
-	}
-	// for custom submeshes
-	for (GeometryGenerator::MeshData mesh : sponza) {
-		for (size_t i = 0; i < mesh.Vertices.size(); ++i, ++k)
-		{
-			vertices[k].Tangent = mesh.Vertices[i].TangentU;
-			vertices[k].Pos = mesh.Vertices[i].Position;
-			vertices[k].Normal = mesh.Vertices[i].Normal;
-			vertices[k].TexC = mesh.Vertices[i].TexC;
-		}
-	}
-	for (GeometryGenerator::MeshData mesh : gorg) {
+	for (GeometryGenerator::MeshData mesh : allMeshData) {
 		for (size_t i = 0; i < mesh.Vertices.size(); ++i, ++k)
 		{
 			vertices[k].Tangent = mesh.Vertices[i].TangentU;
@@ -784,11 +723,7 @@ void TexColumnsApp::BuildShapeGeometry()
 	}
 
 	std::vector<std::uint16_t> indices;
-	indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
-	indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
-	for (GeometryGenerator::MeshData mesh : sponza)
-		indices.insert(indices.end(), std::begin(mesh.GetIndices16()), std::end(mesh.GetIndices16()));
-	for (GeometryGenerator::MeshData mesh : gorg)
+	for (GeometryGenerator::MeshData mesh : allMeshData)
 		indices.insert(indices.end(), std::begin(mesh.GetIndices16()), std::end(mesh.GetIndices16()));
 
 	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
@@ -814,12 +749,10 @@ void TexColumnsApp::BuildShapeGeometry()
 	geo->IndexFormat = DXGI_FORMAT_R16_UINT;
 	geo->IndexBufferByteSize = ibByteSize;
 
-	geo->DrawArgs["box"] = boxSubmesh;
-	geo->DrawArgs["grid"] = gridSubmesh;
-	for (int i = 0; i < sponzaSubmeshes.size(); i++, numOfCustomModels1++)
-		geo->DrawArgs["sponza" + i] = sponzaSubmeshes.at(i);
-	for (int i = 0; i < gorgSubmeshes.size(); i++, numOfCustomModels2++)
-		geo->DrawArgs["gorg" + i] = gorgSubmeshes.at(i);
+	for (size_t i = 0; i < allMeshData.size(); i++)
+	{
+		geo->DrawArgs[allMeshData.at(i).name] = allSubmeshes.at(i);
+	}
 
 	mGeometries[geo->Name] = std::move(geo);
 }
@@ -931,25 +864,10 @@ void TexColumnsApp::BuildRenderItems()
 {
 	BuildRenderItem("box", "stone0", XMMatrixTranslation(15.f, -45.f, 0.f));
 	BuildRenderItem("grid", "stone0", XMMatrixTranslation(0.f, -50.f, 10.f));
-
-	for (int i = 0; i < numOfCustomModels1; i++)
-	{
-		BuildRenderItem("sponza" + i, "bricks0", XMMatrixTranslation(0.f, -50.f, 20.f));
-	}
-	for (int i = 0; i < numOfCustomModels1; i++)
-	{
-		BuildRenderItem("sponza" + i, "bricks0", XMMatrixTranslation(-30.f, -50.f, 40.f));
-	}
-	for (int i = 0; i < numOfCustomModels1; i++)
-	{
-		BuildRenderItem("sponza" + i, "bricks0", XMMatrixTranslation(30.f, -50.f, 0.f));
-	}
-
-	for (int i = 0; i < numOfCustomModels2; i++)
-	{
-		BuildRenderItem("gorg" + i, "gorg", XMMatrixTranslation(0.f, 0.f, 0.f));
-	}
-		
+	BuildRenderItem("Baryonyx", "bricks0", XMMatrixTranslation(0.f, -50.f, 20.f));
+	BuildRenderItem("Baryonyx", "bricks0", XMMatrixTranslation(-30.f, -50.f, 40.f));
+	BuildRenderItem("Baryonyx", "bricks0", XMMatrixTranslation(30.f, -50.f, 0.f));
+	
 		// All the render items are opaque.
 	for (auto& e : mAllRitems)
 		mOpaqueRitems.push_back(e.get());

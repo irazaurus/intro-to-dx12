@@ -58,6 +58,7 @@ public:
 	{
 		std::vector<Vertex> Vertices;
         std::vector<uint32> Indices32;
+		std::string name;
 
         std::vector<uint16>& GetIndices16()
         {
@@ -78,7 +79,7 @@ public:
 	///<summary>
 	/// Creates a vector of MeshData's out of imported model
 	///</summary>
-	std::vector<MeshData> LoadModel(const std::string& pFile);
+	MeshData LoadModel(const std::string& pFile);
 
 	///<summary>
 	/// Creates a box centered at the origin with the given dimensions, where each

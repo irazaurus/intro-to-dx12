@@ -105,24 +105,7 @@ Vertex VS(Vertex vin)
 PatchTess ConstantHS(InputPatch<Vertex, 3> patch, uint patchID : SV_PrimitiveID)
 {
     PatchTess pt;
-	
-    float3 centerL = 0.25f * (patch[0].PosL + patch[1].PosL + patch[2].PosL);
-    float3 centerW = mul(float4(centerL, 1.0f), gWorld).xyz;
-	
-    float d = distance(centerW, gEyePosW);
-
-	// Tessellate the patch based on distance from the eye such that
-	// the tessellation is 1 if d >= d1 and 8 if d <= d0.  The interval
-	// [d0, d1] defines the range we tessellate in.
-	
-    const float d0 = 20.0f;
-    const float d1 = 100.0f;
-    if (d < d0)
-        d = d0;
-    
-    float tess = 8 * saturate((d1 - d) / (d1 - d0));
-    if (tess <= 0)
-        tess = 1;
+    float tess = 1;
 
 	// Uniformly tessellate the patch.
     
