@@ -132,7 +132,6 @@ private:
 
 	// List of all the render items.
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
-	int numOfCustomModels1 = 0, numOfCustomModels2 = 0;
 	int ObjCBIndex = 0;
 
 	// Render items divided by PSO.
