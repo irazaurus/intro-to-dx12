@@ -8,6 +8,7 @@
 #include "../../Common/GeometryGenerator.h"
 #include "../../Common/Camera.h"
 #include "FrameResource.h"
+#include "ShadowMap.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -57,6 +58,14 @@ struct RenderItem
 	int BaseVertexLocation = 0;
 };
 
+enum class RenderLayer : int
+{
+	Opaque = 0,
+	Debug,
+	Sky,
+	Count
+};
+
 class TexColumnsApp : public D3DApp
 {
 public:
@@ -68,6 +77,7 @@ public:
 	virtual bool Initialize()override;
 
 private:
+	virtual void CreateRtvAndDsvDescriptorHeaps()override;
 	virtual void OnResize()override;
 	virtual void Update(const GameTimer& gt)override;
 	virtual void Draw(const GameTimer& gt)override;
@@ -82,6 +92,8 @@ private:
 	void UpdateMaterialCBs(const GameTimer& gt);
 	void UpdateMainPassCB(const GameTimer& gt);
 	void UpdatePostProcessCB(const GameTimer& gt);
+	void UpdateShadowPassCB(const GameTimer& gt);
+	void UpdateShadowTransform(const GameTimer& gt);
 
 	void LoadTexture(std::string name, std::wstring filename);
 	void LoadTextures();
@@ -95,11 +107,12 @@ private:
 	void BuildRenderItem(std::string name, std::string material, XMMATRIX translate, float scale = 1.f, float scaleTex = 1.f);
 	void BuildRenderItems();
 	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+	void DrawSceneToShadowMap();
 	void BuildPostProcessResources();
 	void BuildPostProcessPSO();
 	void BuildPostProcessRootSignature();
 
-	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
+	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
 private:
 
@@ -119,6 +132,20 @@ private:
 	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
 	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
 
+	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
+
+	// List of all the render items.
+	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
+	int ObjCBIndex = 0;
+
+	// Render items divided by PSO.
+	std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
+
+	PassConstants mMainPassCB;
+
+	Camera mCamera;
+	POINT mLastMousePos;
+
 	// For post-processing
 	ComPtr<ID3D12Resource> mPostProcessRenderTarget;
 	ComPtr<ID3D12Resource> mPostProcessRenderTargetUpload;
@@ -128,19 +155,31 @@ private:
 	ComPtr<ID3D12RootSignature> mPostProcessRootSignature;
 	std::unordered_map<std::string, ComPtr<ID3DBlob>> mPostProcessShaders;
 
-	std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
+	// For lighting
+	std::unique_ptr<ShadowMap> mShadowMap;
+	DirectX::BoundingSphere mSceneBounds;
+	PassConstants mShadowPassCB;
 
-	// List of all the render items.
-	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
-	int ObjCBIndex = 0;
+	float mLightNearZ = 0.0f;
+	float mLightFarZ = 0.0f;
+	XMFLOAT3 mLightPosW;
+	XMFLOAT4X4 mLightView = MathHelper::Identity4x4();
+	XMFLOAT4X4 mLightProj = MathHelper::Identity4x4();
+	XMFLOAT4X4 mShadowTransform = MathHelper::Identity4x4();
 
-	// Render items divided by PSO.
-	std::vector<RenderItem*> mOpaqueRitems;
+	float mLightRotationAngle = 0.0f;
+	XMFLOAT3 mBaseLightDirections[3] = {
+		XMFLOAT3(0.57735f, -0.57735f, 0.57735f),
+		XMFLOAT3(-0.57735f, -0.57735f, 0.57735f),
+		XMFLOAT3(0.0f, -0.707f, -0.707f)
+	};
+	XMFLOAT3 mRotatedLightDirections[3];
 
-	PassConstants mMainPassCB;
-
-	Camera mCamera;
-	POINT mLastMousePos;
+	UINT mSkyTexHeapIndex = 0;
+	UINT mShadowMapHeapIndex = 0;
+	UINT mNullCubeSrvIndex = 0;
+	UINT mNullTexSrvIndex = 0;
+	CD3DX12_GPU_DESCRIPTOR_HANDLE mNullSrv;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -218,6 +257,27 @@ bool TexColumnsApp::Initialize()
 	FlushCommandQueue();
 
 	return true;
+}
+
+void TexColumnsApp::CreateRtvAndDsvDescriptorHeaps()
+{
+	// Add +6 RTV for cube render target.
+	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
+	rtvHeapDesc.NumDescriptors = SwapChainBufferCount;
+	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	rtvHeapDesc.NodeMask = 0;
+	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
+		&rtvHeapDesc, IID_PPV_ARGS(mRtvHeap.GetAddressOf())));
+
+	// Add +1 DSV for shadow map.
+	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
+	dsvHeapDesc.NumDescriptors = 2;
+	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	dsvHeapDesc.NodeMask = 0;
+	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
+		&dsvHeapDesc, IID_PPV_ARGS(mDsvHeap.GetAddressOf())));
 }
 
 void TexColumnsApp::OnResize()
@@ -494,6 +554,75 @@ void TexColumnsApp::UpdatePostProcessCB(const GameTimer& gt)
 	postProcessSettings.EffectType = 0;
 
 	currPostProcessCB->CopyData(0, postProcessSettings);
+}
+
+void TexColumnsApp::UpdateShadowPassCB(const GameTimer& gt)
+{
+	XMMATRIX view = XMLoadFloat4x4(&mLightView);
+	XMMATRIX proj = XMLoadFloat4x4(&mLightProj);
+
+	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
+	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+
+	UINT w = mShadowMap->Width();
+	UINT h = mShadowMap->Height();
+
+	XMStoreFloat4x4(&mShadowPassCB.View, XMMatrixTranspose(view));
+	XMStoreFloat4x4(&mShadowPassCB.InvView, XMMatrixTranspose(invView));
+	XMStoreFloat4x4(&mShadowPassCB.Proj, XMMatrixTranspose(proj));
+	XMStoreFloat4x4(&mShadowPassCB.InvProj, XMMatrixTranspose(invProj));
+	XMStoreFloat4x4(&mShadowPassCB.ViewProj, XMMatrixTranspose(viewProj));
+	XMStoreFloat4x4(&mShadowPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+	mShadowPassCB.EyePosW = mLightPosW;
+	mShadowPassCB.RenderTargetSize = XMFLOAT2((float)w, (float)h);
+	mShadowPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / w, 1.0f / h);
+	mShadowPassCB.NearZ = mLightNearZ;
+	mShadowPassCB.FarZ = mLightFarZ;
+
+	auto currPassCB = mCurrFrameResource->PassCB.get();
+	currPassCB->CopyData(1, mShadowPassCB);
+}
+
+void TexColumnsApp::UpdateShadowTransform(const GameTimer& gt)
+{
+	// Only the first "main" light casts a shadow. Why? Idk, you tell me.
+	XMVECTOR lightDir = XMLoadFloat3(&mRotatedLightDirections[0]);
+	XMVECTOR lightPos = -2.0f * mSceneBounds.Radius * lightDir;
+	XMVECTOR targetPos = XMLoadFloat3(&mSceneBounds.Center);
+	XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+	XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
+
+	XMStoreFloat3(&mLightPosW, lightPos);
+
+	// Transform bounding sphere to light space.
+	XMFLOAT3 sphereCenterLS;
+	XMStoreFloat3(&sphereCenterLS, XMVector3TransformCoord(targetPos, lightView));
+
+	// Ortho frustum in light space encloses scene.
+	float l = sphereCenterLS.x - mSceneBounds.Radius;
+	float b = sphereCenterLS.y - mSceneBounds.Radius;
+	float n = sphereCenterLS.z - mSceneBounds.Radius;
+	float r = sphereCenterLS.x + mSceneBounds.Radius;
+	float t = sphereCenterLS.y + mSceneBounds.Radius;
+	float f = sphereCenterLS.z + mSceneBounds.Radius;
+
+	mLightNearZ = n;
+	mLightFarZ = f;
+	XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(l, r, b, t, n, f);
+
+	// Transform NDC space [-1,+1]^2 to texture space [0,1]^2
+	XMMATRIX T(
+		0.5f, 0.0f, 0.0f, 0.0f,
+		0.0f, -0.5f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.5f, 0.5f, 0.0f, 1.0f);
+
+	XMMATRIX S = lightView * lightProj * T;
+	XMStoreFloat4x4(&mLightView, lightView);
+	XMStoreFloat4x4(&mLightProj, lightProj);
+	XMStoreFloat4x4(&mShadowTransform, S);
 }
 
 void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
@@ -910,6 +1039,40 @@ void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const st
 
 		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
+}
+
+void TexColumnsApp::DrawSceneToShadowMap()
+{
+	mCommandList->RSSetViewports(1, &mShadowMap->Viewport());
+	mCommandList->RSSetScissorRects(1, &mShadowMap->ScissorRect());
+
+	// Change to DEPTH_WRITE.
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap->Resource(),
+		D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE));
+
+	UINT passCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
+
+	// Clear the back buffer and depth buffer.
+	mCommandList->ClearDepthStencilView(mShadowMap->Dsv(),
+		D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+
+	// Set null render target because we are only going to draw to
+	// depth buffer.  Setting a null render target will disable color writes.
+	// Note the active PSO also must specify a render target count of 0.
+	mCommandList->OMSetRenderTargets(0, nullptr, false, &mShadowMap->Dsv());
+
+	// Bind the pass constant buffer for the shadow map pass.
+	auto passCB = mCurrFrameResource->PassCB->Resource();
+	D3D12_GPU_VIRTUAL_ADDRESS passCBAddress = passCB->GetGPUVirtualAddress() + 1 * passCBByteSize;
+	mCommandList->SetGraphicsRootConstantBufferView(1, passCBAddress);
+
+	mCommandList->SetPipelineState(mPSOs["shadow_opaque"].Get());
+
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+
+	// Change back to GENERIC_READ so we can read the texture in a shader.
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap->Resource(),
+		D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ));
 }
 
 void TexColumnsApp::BuildPostProcessResources()
