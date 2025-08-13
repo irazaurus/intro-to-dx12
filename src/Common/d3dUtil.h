@@ -204,6 +204,10 @@ struct MaterialConstants
 
 	// Used in texture mapping.
 	DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+	UINT DiffuseMapIndex = 0;
+	UINT NormalMapIndex = 0;
+	UINT MaterialPad1;
+	UINT MaterialPad2;
 };
 
 // Simple struct to represent a material for our demos.  A production 3D engine

@@ -41,6 +41,7 @@ cbuffer cbPass : register(b1)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
+    float4x4 gShadowTransform;
     float3 gEyePosW;
     float cbPerObjectPad1;
     float2 gRenderTargetSize;
@@ -185,7 +186,6 @@ DomainOut DS(PatchTess patchTess,
 
 float4 PS(DomainOut pin) : SV_Target
 {
-    
     float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC) * gDiffuseAlbedo;
 	
 #ifdef ALPHA_TEST
@@ -220,7 +220,7 @@ float4 PS(DomainOut pin) : SV_Target
     float3 shadowFactor = 1.0f;
     float4 directLight = ComputeLighting(gLights, mat, pin.PosL,
         normalMap, toEyeW, shadowFactor);
-    
+
     // this is shit
     //if (!any(directLight))
     //    directLight = (0.1f, 0.1f, 0.1f, 0.1f);
