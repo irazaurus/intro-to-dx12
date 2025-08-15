@@ -17,6 +17,7 @@
 Texture2D gDiffuseMap : register(t0);
 Texture2D gNormalMap : register(t1);
 Texture2D gDisplacementMap : register(t2);
+Texture2D gShadowMap : register(t3);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -24,6 +25,7 @@ SamplerState gsamLinearWrap : register(s2);
 SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
+SamplerComparisonState gsamShadow : register(s6);
 
 // Constant data that varies per frame.
 cbuffer cbPerObject : register(b0)
@@ -91,6 +93,7 @@ struct DomainOut
     float4 PosH : SV_POSITION;
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
+    float4 ShadowPosH : POSITION1;
 };
  
 struct PatchTess
@@ -98,6 +101,39 @@ struct PatchTess
     float EdgeTess[3] : SV_TessFactor;
     float InsideTess : SV_InsideTessFactor;
 };
+
+// calculates shadow factor for shadow mapping
+float CalcShadowFactor(float4 shadowPosH)
+{
+    // Complete projection by doing division by w.
+    shadowPosH.xyz /= shadowPosH.w;
+
+    // Depth in NDC space.
+    float depth = shadowPosH.z;
+
+    uint width, height, numMips;
+    gShadowMap.GetDimensions(0, width, height, numMips);
+
+    // Texel size.
+    float dx = 1.0f / (float) width;
+
+    float percentLit = 0.0f;
+    const float2 offsets[9] =
+    {
+        float2(-dx, -dx), float2(0.0f, -dx), float2(dx, -dx),
+        float2(-dx, 0.0f), float2(0.0f, 0.0f), float2(dx, 0.0f),
+        float2(-dx, +dx), float2(0.0f, +dx), float2(dx, +dx)
+    };
+
+    [unroll]
+    for (int i = 0; i < 9; ++i)
+    {
+        percentLit += gShadowMap.SampleCmpLevelZero(gsamShadow,
+            shadowPosH.xy + offsets[i], depth).r;
+    }
+    
+    return percentLit / 9.0f;
+}
 
 Vertex VS(Vertex vin)
 {
@@ -180,6 +216,9 @@ DomainOut DS(PatchTess patchTess,
     dout.NormalW = norm;
     dout.Tangent = tri[0].Tangent;
     dout.TexC = t;
+    
+    // Generate projective tex-coords to project shadow map onto scene.
+    dout.ShadowPosH = mul(posW, gShadowTransform);
 
     return dout;
 }
@@ -219,7 +258,9 @@ float4 PS(DomainOut pin) : SV_Target
     const float shininess = 1.0f - gRoughness;
     Material mat = { diffuseAlbedo, gFresnelR0, shininess };
     float3 shadowFactor = float3(1.0f, 1.0f, 1.0f);
-    float4 directLight = float4(ComputeDirectionalLight(gLights[0], mat, normalMap, toEyeW), 1.0f);
+    shadowFactor = CalcShadowFactor(pin.ShadowPosH).rrr;
+    
+    float4 directLight = float4(ComputeDirectionalLight(gLights[0], mat, normalMap, toEyeW) * shadowFactor, 1.0f);
     //float4 directLight = ComputeLighting(gLights, mat, pin.PosL, normalMap, toEyeW, shadowFactor); // old code
    
 

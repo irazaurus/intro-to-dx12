@@ -126,7 +126,7 @@ float CalcShadowFactor(float4 shadowPosH)
     float percentLit = 0.0f;
     const float2 offsets[9] =
     {
-        float2(-dx,  -dx), float2(0.0f,  -dx), float2(dx,  -dx),
+        float2(-dx, -dx), float2(0.0f, -dx), float2(dx, -dx),
         float2(-dx, 0.0f), float2(0.0f, 0.0f), float2(dx, 0.0f),
         float2(-dx,  +dx), float2(0.0f,  +dx), float2(dx,  +dx)
     };
@@ -140,4 +140,3 @@ float CalcShadowFactor(float4 shadowPosH)
     
     return percentLit / 9.0f;
 }
-
