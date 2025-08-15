@@ -17,7 +17,7 @@ VertexOut VS(VertexIn vin)
 	VertexOut vout = (VertexOut)0.0f;
 	
     float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
-    vout.PosH = mul(posW, gViewProj);
+    vout.PosH = mul(posW, gLightViewProj);
 	
     return vout;
 }

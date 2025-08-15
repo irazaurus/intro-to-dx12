@@ -41,6 +41,7 @@ cbuffer cbPass : register(b1)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
+    float4x4 gLightViewProj;
     float4x4 gShadowTransform;
     float3 gEyePosW;
     float cbPerObjectPad1;
@@ -217,13 +218,10 @@ float4 PS(DomainOut pin) : SV_Target
 
     const float shininess = 1.0f - gRoughness;
     Material mat = { diffuseAlbedo, gFresnelR0, shininess };
-    float3 shadowFactor = 1.0f;
-    float4 directLight = ComputeLighting(gLights, mat, pin.PosL,
-        normalMap, toEyeW, shadowFactor);
-
-    // this is shit
-    //if (!any(directLight))
-    //    directLight = (0.1f, 0.1f, 0.1f, 0.1f);
+    float3 shadowFactor = float3(1.0f, 1.0f, 1.0f);
+    float4 directLight = float4(ComputeDirectionalLight(gLights[0], mat, normalMap, toEyeW), 1.0f);
+    //float4 directLight = ComputeLighting(gLights, mat, pin.PosL, normalMap, toEyeW, shadowFactor); // old code
+   
 
     float4 litColor = ambient + directLight;
 
