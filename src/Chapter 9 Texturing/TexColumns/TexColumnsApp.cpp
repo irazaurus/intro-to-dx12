@@ -93,7 +93,6 @@ private:
 	void UpdateMaterialCBs(const GameTimer& gt);
 	void UpdateMainPassCB(const GameTimer& gt);
 	void UpdatePostProcessCB(const GameTimer& gt);
-	void UpdateShadowPassCB(const GameTimer& gt);
 	void UpdateShadowTransform(const GameTimer& gt);
 
 	void LoadTexture(std::string name, std::wstring filename);
@@ -159,15 +158,10 @@ private:
 	// For lighting
 	std::unique_ptr<ShadowMap> mShadowMap;
 	DirectX::BoundingSphere mSceneBounds;
-	PassConstants mShadowPassCB;
 
 	float mLightNearZ = 0.0f;
 	float mLightFarZ = 0.0f;
 	XMFLOAT3 mLightPosW;
-	XMFLOAT4X4 mLightView = MathHelper::Identity4x4();
-	XMFLOAT4X4 mLightProj = MathHelper::Identity4x4();
-	XMFLOAT4X4 mLightViewProj = MathHelper::Identity4x4();
-	XMFLOAT4X4 mShadowTransform = MathHelper::Identity4x4();
 
 	float mLightRotationAngle = 0.0f;
 	XMFLOAT3 mBaseLightDirections[3] = {
@@ -614,75 +608,50 @@ void TexColumnsApp::UpdatePostProcessCB(const GameTimer& gt)
 	currPostProcessCB->CopyData(0, postProcessSettings);
 }
 
-void TexColumnsApp::UpdateShadowPassCB(const GameTimer& gt)
-{
-	XMMATRIX view = XMLoadFloat4x4(&mLightView);
-	XMMATRIX proj = XMLoadFloat4x4(&mLightProj);
-
-	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
-	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
-	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
-
-	UINT w = mShadowMap->Width();
-	UINT h = mShadowMap->Height();
-
-	XMStoreFloat4x4(&mShadowPassCB.View, XMMatrixTranspose(view));
-	XMStoreFloat4x4(&mShadowPassCB.InvView, XMMatrixTranspose(invView));
-	XMStoreFloat4x4(&mShadowPassCB.Proj, XMMatrixTranspose(proj));
-	XMStoreFloat4x4(&mShadowPassCB.InvProj, XMMatrixTranspose(invProj));
-	XMStoreFloat4x4(&mShadowPassCB.ViewProj, XMMatrixTranspose(viewProj));
-	XMStoreFloat4x4(&mShadowPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-	mShadowPassCB.EyePosW = mLightPosW;
-	mShadowPassCB.RenderTargetSize = XMFLOAT2((float)w, (float)h);
-	mShadowPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / w, 1.0f / h);
-	mShadowPassCB.NearZ = mLightNearZ;
-	mShadowPassCB.FarZ = mLightFarZ;
-
-	auto currPassCB = mCurrFrameResource->PassCB.get();
-	currPassCB->CopyData(1, mShadowPassCB);
-}
-
 void TexColumnsApp::UpdateShadowTransform(const GameTimer& gt)
 {
-	// Only the first "main" light casts a shadow. Why? Idk, you tell me.
-	XMVECTOR lightDir = XMLoadFloat3(&mRotatedLightDirections[0]);
-	XMVECTOR lightPos = -2.0f * mSceneBounds.Radius * lightDir;
-	XMVECTOR targetPos = XMLoadFloat3(&mSceneBounds.Center);
-	XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-	XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
+		float SphereRadiuses[4] = { 50, 70, 100, 150 };
 
-	XMStoreFloat3(&mLightPosW, lightPos);
+		//for each cascade
+		for (int i = 0; i < 4; i++)
+		{
+			// Only the first "main" light casts a shadow. Why? Idk, you tell me.
+			XMVECTOR lightDir = XMLoadFloat3(&mRotatedLightDirections[0]);
+			XMVECTOR lightPos = mCamera.GetPosition() - 2.0f * SphereRadiuses[i] * lightDir;
+			XMVECTOR targetPos = mCamera.GetPosition();
+			XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+			XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
 
-	// Transform bounding sphere to light space.
-	XMFLOAT3 sphereCenterLS;
-	XMStoreFloat3(&sphereCenterLS, XMVector3TransformCoord(targetPos, lightView));
+			XMStoreFloat3(&mLightPosW, lightPos);
 
-	// Ortho frustum in light space encloses scene.
-	float l = sphereCenterLS.x - mSceneBounds.Radius;
-	float b = sphereCenterLS.y - mSceneBounds.Radius;
-	float n = sphereCenterLS.z - mSceneBounds.Radius;
-	float r = sphereCenterLS.x + mSceneBounds.Radius;
-	float t = sphereCenterLS.y + mSceneBounds.Radius;
-	float f = sphereCenterLS.z + mSceneBounds.Radius;
-	
-	mLightNearZ = n;
-	mLightFarZ = f;
-	XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(l, r, b, t, n, f);
+			// Transform bounding sphere to light space.
+			XMFLOAT3 sphereCenterLS;
+			XMStoreFloat3(&sphereCenterLS, XMVector3TransformCoord(targetPos, lightView));
 
-	// Transform NDC space [-1,+1]^2 to texture space [0,1]^2
-	XMMATRIX T(
-		0.5f, 0.0f, 0.0f, 0.0f,
-		0.0f, -0.5f, 0.0f, 0.0f,
-		0.0f, 0.0f, 1.0f, 0.0f,
-		0.5f, 0.5f, 0.0f, 1.0f);
+			// Ortho frustum in light space encloses scene.
+			float l = sphereCenterLS.x - SphereRadiuses[i];
+			float b = sphereCenterLS.y - SphereRadiuses[i];
+			float n = sphereCenterLS.z - SphereRadiuses[i];
+			float r = sphereCenterLS.x + SphereRadiuses[i];
+			float t = sphereCenterLS.y + SphereRadiuses[i];
+			float f = sphereCenterLS.z + SphereRadiuses[i];
 
-	XMMATRIX S = lightView * lightProj;
-	XMMATRIX S1 = S * T;
-	XMStoreFloat4x4(&mLightView, lightView);
-	XMStoreFloat4x4(&mLightProj, lightProj);
-	XMStoreFloat4x4(&mLightViewProj, S);
-	XMStoreFloat4x4(&mShadowTransform, S1);
+			mLightNearZ = n;
+			mLightFarZ = f;
+			XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(l, r, b, t, n, f);
+
+			// Transform NDC space [-1,+1]^2 to texture space [0,1]^2
+			XMMATRIX T(
+				0.5f, 0.0f, 0.0f, 0.0f,
+				0.0f, -0.5f, 0.0f, 0.0f,
+				0.0f, 0.0f, 1.0f, 0.0f,
+				0.5f, 0.5f, 0.0f, 1.0f);
+
+			XMMATRIX S = lightView * lightProj;
+			XMMATRIX S1 = S * T;
+			XMStoreFloat4x4(&mMainPassCB.LightViewProj[i], XMMatrixTranspose(S));
+			XMStoreFloat4x4(&mMainPassCB.ShadowTransform[i], XMMatrixTranspose(S1));
+		}
 }
 
 void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
@@ -690,15 +659,10 @@ void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	XMMATRIX view = mCamera.GetView();
 	XMMATRIX proj = mCamera.GetProj();
 
-	XMMATRIX lightView = XMLoadFloat4x4(&mLightView);
-	XMMATRIX lightProj = XMLoadFloat4x4(&mLightProj);
-	XMMATRIX lightViewProj = XMMatrixMultiply(lightView, lightProj);
-
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
 	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
 	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
-	XMMATRIX shadowTransform = XMLoadFloat4x4(&mShadowTransform);
 
 	XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
 	XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
@@ -706,8 +670,6 @@ void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
 	XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
 	XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-	XMStoreFloat4x4(&mMainPassCB.LightViewProj, XMMatrixTranspose(lightViewProj));
-	XMStoreFloat4x4(&mMainPassCB.ShadowTransform, XMMatrixTranspose(shadowTransform));
 	mMainPassCB.EyePosW = mCamera.GetPosition3f();
 	mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
@@ -896,8 +858,9 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 	mShaders["tessHS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "HS", "hs_5_0");
 	mShaders["tessDS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "DS", "ds_5_0");
 	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "PS", "ps_5_0");
-
+	
 	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["shadowGS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "GS", "gs_5_1");
 	mShaders["shadowOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "PS", "ps_5_1");
 	mShaders["shadowAlphaTestedPS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", alphaTestDefines, "PS", "ps_5_1");
 
@@ -1064,6 +1027,11 @@ void TexColumnsApp::BuildPSOs()
 	  reinterpret_cast<BYTE*>(mShaders["shadowVS"]->GetBufferPointer()),
 	  mShaders["shadowVS"]->GetBufferSize()
 	};
+	smapPsoDesc.GS =
+	{
+	  reinterpret_cast<BYTE*>(mShaders["shadowGS"]->GetBufferPointer()),
+	  mShaders["shadowGS"]->GetBufferSize()
+	};
 	smapPsoDesc.PS = { nullptr, 0 };
 
 	smapPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
@@ -1091,6 +1059,7 @@ void TexColumnsApp::BuildPSOs()
 		reinterpret_cast<BYTE*>(mShaders["debugVS"]->GetBufferPointer()),
 		mShaders["debugVS"]->GetBufferSize()
 	};
+	debugPsoDesc.GS = {nullptr, 0};
 	debugPsoDesc.PS =
 	{
 		reinterpret_cast<BYTE*>(mShaders["debugPS"]->GetBufferPointer()),
@@ -1494,7 +1463,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> TexColumnsApp::GetStaticSampler
 		0.0f,                               // mipLODBias
 		16,                                 // maxAnisotropy
 		D3D12_COMPARISON_FUNC_LESS_EQUAL,
-		D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK);
+		D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE);
 
 	return {
 		pointWrap, pointClamp,

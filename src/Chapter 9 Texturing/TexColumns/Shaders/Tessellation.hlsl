@@ -17,7 +17,7 @@
 Texture2D gDiffuseMap : register(t0);
 Texture2D gNormalMap : register(t1);
 Texture2D gDisplacementMap : register(t2);
-Texture2D gShadowMap : register(t3);
+Texture2DArray gShadowMap : register(t3);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -43,8 +43,8 @@ cbuffer cbPass : register(b1)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
-    float4x4 gLightViewProj;
-    float4x4 gShadowTransform;
+    float4x4 gLightViewProj[6];
+    float4x4 gShadowTransform[6];
     float3 gEyePosW;
     float cbPerObjectPad1;
     float2 gRenderTargetSize;
@@ -90,6 +90,7 @@ struct DomainOut
 {
     float3 Tangent : TANGENT;
     float3 PosL : POSITION;
+    float3 PosW : POSITION2;
     float4 PosH : SV_POSITION;
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
@@ -103,16 +104,18 @@ struct PatchTess
 };
 
 // calculates shadow factor for shadow mapping
-float CalcShadowFactor(float4 shadowPosH)
+float CalcShadowFactor(float4 posW, int cascadeID)
 {
+    float4 shadowPosH = mul(posW, gShadowTransform[cascadeID]);
+    
     // Complete projection by doing division by w.
     shadowPosH.xyz /= shadowPosH.w;
 
     // Depth in NDC space.
     float depth = shadowPosH.z;
 
-    uint width, height, numMips;
-    gShadowMap.GetDimensions(0, width, height, numMips);
+    uint width, height, numMips, numLayers;
+    gShadowMap.GetDimensions(0, width, height, numLayers, numMips);
 
     // Texel size.
     float dx = 1.0f / (float) width;
@@ -129,7 +132,7 @@ float CalcShadowFactor(float4 shadowPosH)
     for (int i = 0; i < 9; ++i)
     {
         percentLit += gShadowMap.SampleCmpLevelZero(gsamShadow,
-            shadowPosH.xy + offsets[i], depth).r;
+            float3(shadowPosH.xy + offsets[i], cascadeID), depth).r;
     }
     
     return percentLit / 9.0f;
@@ -212,13 +215,14 @@ DomainOut DS(PatchTess patchTess,
 
     dout.PosL = p;
     float4 posW = mul(float4(p, 1.0f), gWorld);
+    dout.PosW = posW;
     dout.PosH = mul(posW, gViewProj);
     dout.NormalW = norm;
     dout.Tangent = tri[0].Tangent;
     dout.TexC = t;
     
     // Generate projective tex-coords to project shadow map onto scene.
-    dout.ShadowPosH = mul(posW, gShadowTransform);
+    dout.ShadowPosH = mul(posW, gShadowTransform[0]);
 
     return dout;
 }
@@ -257,8 +261,17 @@ float4 PS(DomainOut pin) : SV_Target
 
     const float shininess = 1.0f - gRoughness;
     Material mat = { diffuseAlbedo, gFresnelR0, shininess };
-    float3 shadowFactor = float3(1.0f, 1.0f, 1.0f);
-    shadowFactor = CalcShadowFactor(pin.ShadowPosH).rrr;
+    float shadowFactor = 1.0f;
+    
+    for (uint cascade = 0; cascade < 4; cascade++)
+    {
+        float factor = CalcShadowFactor(float4(pin.PosW, 1.0f), cascade);
+        if (factor < 0.3f)
+        {
+            shadowFactor = factor;
+            break;
+        }
+    }
     
     float4 directLight = float4(ComputeDirectionalLight(gLights[0], mat, normalMap, toEyeW) * shadowFactor, 1.0f);
     //float4 directLight = ComputeLighting(gLights, mat, pin.PosL, normalMap, toEyeW, shadowFactor); // old code
