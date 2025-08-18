@@ -103,15 +103,6 @@ struct PatchTess
     float InsideTess : SV_InsideTessFactor;
 };
 
-struct GBufferData
-{
-    float4 diffuse : SV_TARGET0;
-    float4 zwzanashih_RGBA32F : SV_TARGET1;
-    float4 normal : SV_TARGET2;
-    float4 materialAlbedo : SV_TARGET3;
-    float4 MaterialFresnelRoughness : SV_TARGET4;
-};
-
 // calculates shadow factor for shadow mapping
 float CalcShadowFactor(float4 posW, int cascadeID)
 {
@@ -297,37 +288,4 @@ float4 PS(DomainOut pin) : SV_Target
     litColor.a = diffuseAlbedo.a;
     
     return litColor;
-}
-
-
-GBufferData DeferredPS(DomainOut pin)
-{
-    GBufferData pout;
-    
-    float3 normalMap = gNormalMap.Sample(gsamAnisotropicWrap, pin.TexC).rgb;
-    if (length(normalMap) != 0.f)
-    {    
-	// TBN
-        float3 bitangent = (cross(pin.NormalW, pin.Tangent));
-        bitangent = normalize(mul(bitangent, (float3x3) gWorld));
-        float3 tangent = normalize(mul(pin.Tangent, (float3x3) gWorld));
-        float3 normal = normalize(mul(pin.NormalW, (float3x3) gWorld));
-        float3x3 TBN = float3x3(pin.Tangent, bitangent, pin.NormalW);
-    
-	// normal from texture
-        normalMap = normalMap * 2.0f - 1.0f;
-        normalMap = normalize(mul(normalMap, TBN));
-    }
-    else
-        normalMap = normalize(pin.NormalW);
-    
-    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
-
-    pout.diffuse = diffuseAlbedo;
-    pout.zwzanashih_RGBA32F = float4(0.f, 0.f, 0.f, pin.PosH.z);
-    pout.normal = float4(normalMap, 0.f);
-    pout.materialAlbedo = gDiffuseAlbedo;
-    pout.MaterialFresnelRoughness = float4(gFresnelR0, gRoughness);
-
-    return pout;
 }

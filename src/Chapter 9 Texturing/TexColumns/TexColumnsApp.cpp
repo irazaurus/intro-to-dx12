@@ -122,7 +122,7 @@ private:
 
 	UINT mCbvSrvDescriptorSize = 0;
 
-	ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
+	std::unordered_map<std::string, ComPtr<ID3D12RootSignature>> mRootSignature;
 
 	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
 
@@ -288,6 +288,17 @@ void TexColumnsApp::OnResize()
 
 	// The window resized, so update the aspect ratio and recompute the projection matrix.
 	mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+	mGBuffer->Resize(mClientWidth, mClientHeight, md3dDevice.Get());
+
+	// copy gbuffer resources into the srv heap
+	if (mSrvDescriptorHeap != nullptr)
+	{
+		auto srvGBuffer = CD3DX12_CPU_DESCRIPTOR_HANDLE(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+		srvGBuffer.Offset(mGBuffer->Channel0SRVHeapIndex, mCbvSrvUavDescriptorSize);
+		md3dDevice->CopyDescriptorsSimple(mGBuffer->NumBuffers, srvGBuffer,
+			mGBuffer->m_SRVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+			D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	}
 }
 
 void TexColumnsApp::Update(const GameTimer& gt)
@@ -320,6 +331,7 @@ void TexColumnsApp::Update(const GameTimer& gt)
 void TexColumnsApp::Draw(const GameTimer& gt)
 {
 	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
+	auto passCB = mCurrFrameResource->PassCB->Resource();
 
 	// Reuse the memory associated with command recording.
 	// We can only reset when the associated command lists have finished execution on the GPU.
@@ -328,8 +340,38 @@ void TexColumnsApp::Draw(const GameTimer& gt)
 	// A command list can be reset after it has been added to the command queue via ExecuteCommandList.
 	// Reusing the command list reuses memory.
 	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), nullptr));
-	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+	mCommandList->SetGraphicsRootSignature(mRootSignature["default"].Get());
 	
+	// draw geometry for deferred render
+	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+	ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
+
+	mCommandList->RSSetViewports(1, &mScreenViewport);
+	mCommandList->RSSetScissorRects(1, &mScissorRect);
+	mCommandList->SetPipelineState(mPSOs["deferredGeometry"].Get());
+
+	D3D12_CPU_DESCRIPTOR_HANDLE rtvs[5] = {
+		 mGBuffer->DiffuseRTV,
+		 mGBuffer->ZWzanashihRTV,
+		 mGBuffer->NormalRTV,
+		 mGBuffer->MaterialAlbedoRTV,
+		 mGBuffer->MaterialFresnelRoughnessRTV
+	};
+
+	mCommandList->OMSetRenderTargets(5, rtvs, false, &DepthStencilView());
+
+	mGBuffer->TransitToOpaqueRenderingState(mCommandList);
+	mGBuffer->ClearRTVs(mCommandList);
+
+	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+	mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+
+	mGBuffer->TransitToLightsRenderingState(mCommandList);
+	mGBuffer->TransitToTonemappingState(mCommandList);
+	mGBuffer->TransitFromShaderResourceToCommon(mCommandList);
+
 	// draw shadow map
 	mCommandList->RSSetViewports(1, &mShadowMap->Viewport());
 	mCommandList->RSSetScissorRects(1, &mShadowMap->ScissorRect());
@@ -345,13 +387,11 @@ void TexColumnsApp::Draw(const GameTimer& gt)
 
 	// Specify the buffers we are going to render to.
 	mCommandList->OMSetRenderTargets(0, nullptr, true, &mShadowMap->Dsv());
-	ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
 
 	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
+	
 	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-	auto passCB = mCurrFrameResource->PassCB->Resource();
 	mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
@@ -767,7 +807,7 @@ void TexColumnsApp::BuildRootSignature()
 		0,
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
-		IID_PPV_ARGS(mRootSignature.GetAddressOf())));
+		IID_PPV_ARGS(mRootSignature["default"].GetAddressOf())));
 }
 
 void TexColumnsApp::BuildDescriptorHeaps()
@@ -821,6 +861,14 @@ void TexColumnsApp::BuildDescriptorHeaps()
 
 	mNullCubeSrvIndex = mShadowMapHeapIndex + 1;
 	mNullTexSrvIndex = mNullCubeSrvIndex + 1;
+	mGBuffer->Channel0SRVHeapIndex = mNullCubeSrvIndex + 1;
+
+	// copy gbuffer resources into the srv heap
+	auto srvGBuffer = CD3DX12_CPU_DESCRIPTOR_HANDLE(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	srvGBuffer.Offset(mGBuffer->Channel0SRVHeapIndex, mCbvSrvUavDescriptorSize);
+	md3dDevice->CopyDescriptorsSimple(mGBuffer->NumBuffers, srvGBuffer,
+		mGBuffer->m_SRVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+		D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
 	auto srvCpuStart = mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
 	auto srvGpuStart = mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
@@ -858,6 +906,7 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 	mShaders["tessHS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "HS", "hs_5_0");
 	mShaders["tessDS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "DS", "ds_5_0");
 	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "PS", "ps_5_0");
+	mShaders["deferredPS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "DeferredPS", "ps_5_0");
 	
 	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["shadowGS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "GS", "gs_5_1");
@@ -977,7 +1026,7 @@ void TexColumnsApp::BuildPSOs()
 	//
 	ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
 	opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-	opaquePsoDesc.pRootSignature = mRootSignature.Get();
+	opaquePsoDesc.pRootSignature = mRootSignature["default"].Get();
 	opaquePsoDesc.VS =
 	{
 		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
@@ -1021,7 +1070,7 @@ void TexColumnsApp::BuildPSOs()
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC smapPsoDesc;
 	ZeroMemory(&smapPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
 	smapPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-	smapPsoDesc.pRootSignature = mRootSignature.Get();
+	smapPsoDesc.pRootSignature = mRootSignature["default"].Get();
 	smapPsoDesc.VS =
 	{
 	  reinterpret_cast<BYTE*>(mShaders["shadowVS"]->GetBufferPointer()),
@@ -1053,7 +1102,7 @@ void TexColumnsApp::BuildPSOs()
 	// PSO for debug layer.
 	//
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc = smapPsoDesc;
-	debugPsoDesc.pRootSignature = mRootSignature.Get();
+	debugPsoDesc.pRootSignature = mRootSignature["default"].Get();
 	debugPsoDesc.VS =
 	{
 		reinterpret_cast<BYTE*>(mShaders["debugVS"]->GetBufferPointer()),
@@ -1079,7 +1128,7 @@ void TexColumnsApp::BuildPSOs()
 	// Otherwise, the normalized depth values at z = 1 (NDC) will 
 	// fail the depth test if the depth buffer was cleared to 1.
 	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	skyPsoDesc.pRootSignature = mRootSignature.Get();
+	skyPsoDesc.pRootSignature = mRootSignature["default"].Get();
 	skyPsoDesc.VS =
 	{
 		reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()),
@@ -1094,6 +1143,24 @@ void TexColumnsApp::BuildPSOs()
 	};
 	skyPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
+
+	//
+	//	PSO for deferred geometry pass
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC deferredGeometryPsoDesc = opaquePsoDesc;
+	deferredGeometryPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["deferredPS"]->GetBufferPointer()),
+		mShaders["deferredPS"]->GetBufferSize()
+	};
+	deferredGeometryPsoDesc.DepthStencilState.DepthEnable = false;
+	deferredGeometryPsoDesc.NumRenderTargets = 5;
+	deferredGeometryPsoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;		   // diffuse
+	deferredGeometryPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;    // zwzanashih
+	deferredGeometryPsoDesc.RTVFormats[2] = DXGI_FORMAT_R16G16B16A16_SNORM;	   // normal
+	deferredGeometryPsoDesc.RTVFormats[3] = DXGI_FORMAT_R8G8B8A8_UNORM;        // diffuse albedo
+	deferredGeometryPsoDesc.RTVFormats[4] = DXGI_FORMAT_R8G8B8A8_UNORM;        // fresnel & roughness
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredGeometryPsoDesc, IID_PPV_ARGS(&mPSOs["deferredGeometry"])));
 }
 
 void TexColumnsApp::BuildFrameResources()

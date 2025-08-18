@@ -11,6 +11,7 @@
 
 #include "d3dUtil.h"
 #include "GameTimer.h"
+#include "..\Chapter 9 Texturing\TexColumns\Gbuffer.h"
 
 // Link necessary d3d12 libraries.
 #pragma comment(lib,"d3dcompiler.lib")
@@ -90,6 +91,7 @@ protected:
 
 	// Used to keep track of the “delta-time” and game time (§4.4).
 	GameTimer mTimer;
+    std::unique_ptr<Gbuffer> mGBuffer;
 	
     Microsoft::WRL::ComPtr<IDXGIFactory4> mdxgiFactory;
     Microsoft::WRL::ComPtr<IDXGISwapChain> mSwapChain;
