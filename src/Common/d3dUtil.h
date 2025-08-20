@@ -184,7 +184,14 @@ struct MeshGeometry
 	}
 };
 
-struct Light
+enum struct LightType
+{
+	Directional,
+	Pointlight,
+	Spotlight,
+};
+
+struct LightConstants
 {
     DirectX::XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
     float FalloffStart = 1.0f;                          // point/spot light only
@@ -192,6 +199,11 @@ struct Light
     float FalloffEnd = 10.0f;                           // point/spot light only
     DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  // point/spot light only
     float SpotPower = 64.0f;                            // spot light only
+	DirectX::XMFLOAT3 Color = { 1.f, 1.f, 1.f };
+	int LightType = 0; //0 - directional; 1 - point; 2 - spot
+	DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 ViewProj[6];
+	DirectX::XMFLOAT4X4 ShadowTransform[6];
 };
 
 #define MaxLights 16
@@ -220,11 +232,9 @@ struct Material
 	// Index into constant buffer corresponding to this material.
 	int MatCBIndex = -1;
 
-	// Index into SRV heap for diffuse texture.
-	int DiffuseSrvHeapIndex = -1;
-
-	// Index into SRV heap for normal texture.
-	int NormalSrvHeapIndex = -1;
+	int DiffuseSrvHeapIndex = 0;
+	int NormalSrvHeapIndex = 0;
+	int DisplaceSrvHeapIndex = 0;
 
 	// Dirty flag indicating the material has changed and we need to update the constant buffer.
 	// Because we have a material constant buffer for each FrameResource, we have to apply the
@@ -245,6 +255,7 @@ struct Texture
 	std::string Name;
 
 	std::wstring Filename;
+	UINT SrvHeapIndex = 0;
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> Resource = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> UploadHeap = nullptr;
