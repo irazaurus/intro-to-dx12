@@ -125,6 +125,8 @@ private:
 	void BuildLightObjects();
 	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 	void DrawDeferredGeometry();
+	void DrawDeferredLights();
+	void DrawPostProcess();
 	void DrawShadowMaps();
 	void BuildPostProcessResources();
 	void BuildPostProcessPSO();
@@ -347,6 +349,7 @@ void TexColumnsApp::Update(const GameTimer& gt)
 	AnimateMaterials(gt);
 	UpdateShadowTransform(gt);
 	UpdateObjectCBs(gt);
+	UpdateLightCBs(gt);
 	UpdateMaterialCBs(gt);
 	UpdateMainPassCB(gt);
 	UpdatePostProcessCB(gt);
@@ -377,108 +380,20 @@ void TexColumnsApp::Draw(const GameTimer& gt)
 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
+	DrawShadowMaps();
+
 	mGBuffer->TransitToOpaqueRenderingState(mCommandList);
 	mGBuffer->ClearRTVs(mCommandList);
 
 	DrawDeferredGeometry();
 
 	mGBuffer->TransitToLightsRenderingState(mCommandList);
+	DrawDeferredLights();
+
 	mGBuffer->TransitToTonemappingState(mCommandList);
+	DrawPostProcess();
+
 	mGBuffer->TransitFromShaderResourceToCommon(mCommandList);
-
-	// draw unnecessary shadow map
-	mCommandList->RSSetViewports(1, &mShadowMap->Viewport());
-	mCommandList->RSSetScissorRects(1, &mShadowMap->ScissorRect());
-	mCommandList->SetPipelineState(mPSOs["shadow_opaque"].Get());
-
-	// Transition render target to dsv
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
-		mShadowMap->Resource(),
-		D3D12_RESOURCE_STATE_GENERIC_READ,
-		D3D12_RESOURCE_STATE_DEPTH_WRITE));
-	// Clear depth stencil
-	mCommandList->ClearDepthStencilView(mShadowMap->Dsv(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-
-	// Specify the buffers we are going to render to.
-	mCommandList->OMSetRenderTargets(0, nullptr, true, &mShadowMap->Dsv());
-
-	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	
-	mCommandList->SetGraphicsRootConstantBufferView(11, passCB->GetGPUVirtualAddress());
-
-	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
-
-	// Transition dsv to rtv
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
-		mShadowMap->Resource(),
-		D3D12_RESOURCE_STATE_DEPTH_WRITE,
-		D3D12_RESOURCE_STATE_GENERIC_READ));
-
-	DrawShadowMaps();
-
-	// draw opaque items
-	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
-
-	mCommandList->RSSetViewports(1, &mScreenViewport);
-	mCommandList->RSSetScissorRects(1, &mScissorRect);
-	mCommandList->SetPipelineState(mPSOs["opaque"].Get());
-
-#if defined(POSTEFFECTS)
-	// Set render target
-	mCommandList->OMSetRenderTargets(1, &rtvHandle, true, &DepthStencilView());
-# else
-	// Specify the buffers we are going to render to.
-	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-#endif
-
-	mCommandList->SetGraphicsRootDescriptorTable(3, mShadowMap->Srv()); // Shadow Map
-	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-	mCommandList->SetGraphicsRootConstantBufferView(11, passCB->GetGPUVirtualAddress());
-
-	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
-
-#if defined(POSTEFFECTS)
-	// Transition render target to shader resource for post-processing
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
-		mPostProcessRenderTarget.Get(),
-		D3D12_RESOURCE_STATE_RENDER_TARGET,
-		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
-
-	// Transition back buffer to render target for post-processing
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
-		CurrentBackBuffer(),
-		D3D12_RESOURCE_STATE_PRESENT,
-		D3D12_RESOURCE_STATE_RENDER_TARGET));
-
-	// Post-processing pass
-	mCommandList->SetPipelineState(mPostProcessPSO.Get());
-	mCommandList->SetGraphicsRootSignature(mPostProcessRootSignature.Get());
-
-	ID3D12DescriptorHeap* postProcessHeaps[] = { mPostProcessSRVHeap.Get() };
-	mCommandList->SetDescriptorHeaps(_countof(postProcessHeaps), postProcessHeaps);
-
-	CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(
-		mPostProcessSRVHeap->GetGPUDescriptorHandleForHeapStart());
-	mCommandList->SetGraphicsRootDescriptorTable(0, srvHandle); // Texture
-	srvHandle.Offset(1, mCbvSrvDescriptorSize);
-	mCommandList->SetGraphicsRootDescriptorTable(1, srvHandle); // Depth buffer
-	auto postProcessCB = mCurrFrameResource->PostProcessCB->Resource();
-    mCommandList->SetGraphicsRootConstantBufferView(11, 
-        postProcessCB->GetGPUVirtualAddress()); // PostProcess Settings
-
-	// Set back buffer as render target
-	CD3DX12_CPU_DESCRIPTOR_HANDLE backBufferRtvHandle(
-		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
-		mCurrBackBuffer,
-		mCbvSrvDescriptorSize);
-	mCommandList->OMSetRenderTargets(1, &backBufferRtvHandle, true, nullptr);
-
-	// Draw fullscreen quad
-	mCommandList->IASetVertexBuffers(0, 0, nullptr);
-	mCommandList->IASetIndexBuffer(nullptr);
-	mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	mCommandList->DrawInstanced(3, 1, 0, 0);
-#endif
 
 	// Indicate a state transition on the resource usage.
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -764,7 +679,7 @@ void TexColumnsApp::UpdatePostProcessCB(const GameTimer& gt)
 	postProcessSettings.ChromaticDirection = XMFLOAT2(-1.0f, -1.0f);
 	postProcessSettings.ChromaticIntensity = 2.0f;
 	postProcessSettings.ChromaticDistanceScale = 1.5f;
-	postProcessSettings.EffectIntensity = 1.0f;
+	postProcessSettings.EffectIntensity = 0.0f;
 	postProcessSettings.EffectType = 0;
 
 	currPostProcessCB->CopyData(0, postProcessSettings);
@@ -986,7 +901,7 @@ void TexColumnsApp::BuildDescriptorHeaps()
 
 	mNullCubeSrvIndex = mSkyTexHeapIndex + 1;
 	mNullTexSrvIndex = mNullCubeSrvIndex + 1;
-	mGBuffer->Channel0SRVHeapIndex = mNullCubeSrvIndex + 1;
+	mGBuffer->Channel0SRVHeapIndex = mNullTexSrvIndex + 1;
 	mShadowMapHeapIndex = mGBuffer->Channel0SRVHeapIndex + mGBuffer->NumBuffers + 1;
 
 	// copy gbuffer resources into the srv heap
@@ -1044,6 +959,13 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 
 	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
+
+	mShaders["deferredLightsVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["deferredLightsPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["deferredAmbientPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "AmbientPS", "ps_5_1");
+	
+	mShaders["postVS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "VS", "vs_5_0");
+	mShaders["postPS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "PS", "ps_5_0");
 
 	mInputLayout =
 	{
@@ -1279,7 +1201,6 @@ void TexColumnsApp::BuildPSOs()
 		reinterpret_cast<BYTE*>(mShaders["deferredPS"]->GetBufferPointer()),
 		mShaders["deferredPS"]->GetBufferSize()
 	};
-	deferredGeometryPsoDesc.DepthStencilState.DepthEnable = false;
 	deferredGeometryPsoDesc.NumRenderTargets = 5;
 	deferredGeometryPsoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;		   // diffuse
 	deferredGeometryPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;    // zwzanashih
@@ -1287,6 +1208,84 @@ void TexColumnsApp::BuildPSOs()
 	deferredGeometryPsoDesc.RTVFormats[3] = DXGI_FORMAT_R8G8B8A8_UNORM;        // diffuse albedo
 	deferredGeometryPsoDesc.RTVFormats[4] = DXGI_FORMAT_R8G8B8A8_UNORM;        // fresnel & roughness
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredGeometryPsoDesc, IID_PPV_ARGS(&mPSOs["deferredGeometry"])));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC deferredPsoDesc = {};
+	deferredPsoDesc.InputLayout = { nullptr, 0 };
+	deferredPsoDesc.pRootSignature = mRootSignature["default"].Get();
+
+	deferredPsoDesc.VS =
+	{
+	 reinterpret_cast<BYTE*>(mShaders["deferredLightsVS"]->GetBufferPointer()),
+	 mShaders["deferredLightsVS"]->GetBufferSize()
+	};
+	deferredPsoDesc.PS =
+	{
+	 reinterpret_cast<BYTE*>(mShaders["deferredLightsPS"]->GetBufferPointer()),
+	 mShaders["deferredLightsPS"]->GetBufferSize()
+	};
+
+	deferredPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+
+
+	CD3DX12_BLEND_DESC blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	blendDesc.RenderTarget[0].BlendEnable = true;
+	blendDesc.RenderTarget[0].LogicOpEnable = false;
+	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+	deferredPsoDesc.BlendState = blendDesc;
+
+	deferredPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	deferredPsoDesc.DepthStencilState.DepthEnable = false;
+	deferredPsoDesc.DepthStencilState.StencilEnable = false;
+	deferredPsoDesc.SampleMask = UINT_MAX;
+	deferredPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	deferredPsoDesc.NumRenderTargets = 1;
+	deferredPsoDesc.RTVFormats[0] = mBackBufferFormat;
+	deferredPsoDesc.SampleDesc.Count = 1;
+	deferredPsoDesc.DSVFormat = mDepthStencilFormat;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLights"])));
+
+	deferredPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["deferredAmbientPS"]->GetBufferPointer()),
+		mShaders["deferredAmbientPS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredPsoDesc, IID_PPV_ARGS(&mPSOs["deferredAmbient"])));
+
+	//
+	// PSO for post process
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
+	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+	psoDesc.InputLayout = { nullptr, 0 };
+	psoDesc.pRootSignature = mRootSignature["default"].Get();
+	psoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["postVS"]->GetBufferPointer()),
+		mShaders["postVS"]->GetBufferSize()
+	};
+	psoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["postPS"]->GetBufferPointer()),
+		mShaders["postPS"]->GetBufferSize()
+	};
+	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	psoDesc.DepthStencilState.DepthEnable = false;
+	psoDesc.DepthStencilState.StencilEnable = false;
+	psoDesc.DSVFormat = mDepthStencilFormat;
+	psoDesc.SampleMask = UINT_MAX;
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoDesc.NumRenderTargets = 1;
+	psoDesc.RTVFormats[0] = mBackBufferFormat;
+	psoDesc.SampleDesc.Count = 1;
+	psoDesc.SampleDesc.Quality = 0;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs["PostProcessPSO"])));
 }
 
 void TexColumnsApp::BuildFrameResources()
@@ -1373,6 +1372,7 @@ void TexColumnsApp::BuildLightObjects()
 	spot1->LightType = LightType::Spotlight;
 	spot1->Color = { 1.f, 0.243f, 0.584f };
 	spot1->Position = { 10.f, 0.f, 0.f };
+	spot1->FalloffEnd = 100.f;
 	mAllLights.push_back(std::move(spot1));
 
 	auto point1 = std::make_unique<LightObject>();
@@ -1476,16 +1476,103 @@ void TexColumnsApp::DrawDeferredGeometry()
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
 }
 
+void TexColumnsApp::DrawDeferredLights()
+{
+	auto passCB = mCurrFrameResource->PassCB->Resource();
+
+	UINT lightCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(LightConstants));
+	auto lightCB = mCurrFrameResource->LightCB->Resource();
+
+	mCommandList->SetGraphicsRootConstantBufferView(10, passCB->GetGPUVirtualAddress());
+	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	mCommandList->SetPipelineState(mPSOs["deferredLights"].Get());
+
+	mCommandList->RSSetViewports(1, &mScreenViewport);
+	mCommandList->RSSetScissorRects(1, &mScissorRect);
+	// Specify the buffers we are going to render to.
+	mCommandList->OMSetRenderTargets(1, &mGBuffer->BloomRTV, true, &DepthStencilView());
+
+
+	for (int i = 0; i < 5; i++)
+	{
+		// register texture
+		CD3DX12_GPU_DESCRIPTOR_HANDLE texHandle(
+			mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+			mGBuffer->Channel0SRVHeapIndex + i,
+			mCbvSrvDescriptorSize
+		);
+		mCommandList->SetGraphicsRootDescriptorTable(i + 1, texHandle);
+	}
+
+	for (auto& Light : mAllLights)
+	{
+		auto shadowMap = Light->shadowMap;
+		mCommandList->SetGraphicsRootDescriptorTable(0, shadowMap->Srv());
+
+		D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + Light->lightCBIndex * lightCBByteSize;
+		mCommandList->SetGraphicsRootConstantBufferView(11, lightCBAddress);
+
+		mCommandList->DrawInstanced(6, 1, 0, 0); // todo 3?
+	}
+
+	mCommandList->SetPipelineState(mPSOs["deferredAmbient"].Get());
+	mCommandList->DrawInstanced(6, 1, 0, 0); // todo 3?
+}
+
+void TexColumnsApp::DrawPostProcess()
+{
+	// register input texture
+	CD3DX12_GPU_DESCRIPTOR_HANDLE texHandle(
+		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+		mGBuffer->Channel0SRVHeapIndex + 6,
+		mCbvSrvDescriptorSize
+	);
+	mCommandList->SetGraphicsRootDescriptorTable(0, texHandle);
+
+	// register depth texture
+	CD3DX12_GPU_DESCRIPTOR_HANDLE texHandle1(
+		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+		mGBuffer->Channel0SRVHeapIndex + 1, //zw
+		mCbvSrvDescriptorSize
+	);
+	mCommandList->SetGraphicsRootDescriptorTable(1, texHandle1);
+
+	// register normal texture
+	CD3DX12_GPU_DESCRIPTOR_HANDLE texHandle2(
+		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+		mGBuffer->Channel0SRVHeapIndex + 2, // normal
+		mCbvSrvDescriptorSize
+	);
+	mCommandList->SetGraphicsRootDescriptorTable(2, texHandle2);
+
+	// Specify the buffers we are going to render to.
+	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+
+	auto postProcessCB = mCurrFrameResource->PostProcessCB->Resource();
+	mCommandList->SetGraphicsRootConstantBufferView(10,
+		postProcessCB->GetGPUVirtualAddress()); // PostProcess Settings
+
+	mCommandList->SetPipelineState(mPSOs["PostProcessPSO"].Get());
+	mCommandList->DrawInstanced(3, 1, 0, 0);
+}
+
 void TexColumnsApp::DrawShadowMaps()
 {
 	auto passCB = mCurrFrameResource->PassCB->Resource();
+
+
+	UINT lightCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(LightConstants));
+	auto lightCB = mCurrFrameResource->LightCB->Resource();
+
+	mCommandList->SetGraphicsRootConstantBufferView(11, passCB->GetGPUVirtualAddress());
+	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	mCommandList->SetPipelineState(mPSOs["shadow_opaque"].Get());
 
 	for (auto &Light : mAllLights)
 	{
 		auto shadowMap = Light->shadowMap;
 		mCommandList->RSSetViewports(1, &shadowMap->Viewport());
 		mCommandList->RSSetScissorRects(1, &shadowMap->ScissorRect());
-		mCommandList->SetPipelineState(mPSOs["shadow_opaque"].Get());
 
 		// Transition render target to dsv
 		mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
@@ -1497,9 +1584,10 @@ void TexColumnsApp::DrawShadowMaps()
 
 		// Specify the buffers we are going to render to.
 		mCommandList->OMSetRenderTargets(0, nullptr, true, &shadowMap->Dsv());
-		mCommandList->SetGraphicsRootConstantBufferView(11, passCB->GetGPUVirtualAddress());
 
-		mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + Light->lightCBIndex * lightCBByteSize;
+		mCommandList->SetGraphicsRootConstantBufferView(13, lightCBAddress);
 
 		DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
 
@@ -1584,43 +1672,6 @@ void TexColumnsApp::BuildPostProcessResources()
 
 void TexColumnsApp::BuildPostProcessPSO()
 {
-	// Compile shaders with error handling
-	try
-	{
-		mPostProcessShaders["postVS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "VS", "vs_5_0");
-		mPostProcessShaders["postPS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "PS", "ps_5_0");
-	}
-	catch (DxException& e)
-	{
-		ThrowIfFailed(S_SERBDNT);
-	}
-
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc;
-	ZeroMemory(&psoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-	psoDesc.InputLayout = { nullptr, 0 };
-	psoDesc.pRootSignature = mPostProcessRootSignature.Get();
-	psoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(mPostProcessShaders["postVS"]->GetBufferPointer()),
-		mPostProcessShaders["postVS"]->GetBufferSize()
-	};
-	psoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(mPostProcessShaders["postPS"]->GetBufferPointer()),
-		mPostProcessShaders["postPS"]->GetBufferSize()
-	};
-	psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	psoDesc.DepthStencilState.DepthEnable = false;
-	psoDesc.DepthStencilState.StencilEnable = false;
-	psoDesc.DSVFormat = mDepthStencilFormat;
-	psoDesc.SampleMask = UINT_MAX;
-	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	psoDesc.NumRenderTargets = 1;
-	psoDesc.RTVFormats[0] = mBackBufferFormat;
-	psoDesc.SampleDesc.Count = 1;
-	psoDesc.SampleDesc.Quality = 0;
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPostProcessPSO)));
 }
 
 void TexColumnsApp::BuildPostProcessRootSignature()
