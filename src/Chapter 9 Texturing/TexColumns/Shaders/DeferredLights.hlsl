@@ -23,8 +23,6 @@ cbuffer cbPass : register(b0)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
-    float4x4 gLightViewProj[6];
-    float4x4 gShadowTransform[6];
     float3 gEyePosW;
     float cbPerObjectPad1;
     float2 gRenderTargetSize;
@@ -34,8 +32,6 @@ cbuffer cbPass : register(b0)
     float gTotalTime;
     float gDeltaTime;
     float4 gAmbientLight;
-    
-    Light gLights[MaxLights];
 };
 
 cbuffer LightConstants : register(b1)
@@ -67,7 +63,7 @@ float3 RestoreWorldPosition(float2 UV, float depth)
 // calculates shadow factor for shadow mapping
 float CalcShadowFactor(float4 posW, int cascadeID)
 {
-    float4 shadowPosH = mul(posW, gShadowTransform[cascadeID]);
+    float4 shadowPosH = mul(posW, LShadowTransform[cascadeID]);
     
     // Complete projection by doing division by w.
     shadowPosH.xyz /= shadowPosH.w;

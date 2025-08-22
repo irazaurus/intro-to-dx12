@@ -43,8 +43,6 @@ cbuffer cbPass : register(b1)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
-    float4x4 gLightViewProj[6];
-    float4x4 gShadowTransform[6];
     float3 gEyePosW;
     float cbPerObjectPad1;
     float2 gRenderTargetSize;
@@ -54,12 +52,6 @@ cbuffer cbPass : register(b1)
     float gTotalTime;
     float gDeltaTime;
     float4 gAmbientLight;
-
-	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
-	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
-	// indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
-	// are spot lights for a maximum of MaxLights per object.
-    Light gLights[MaxLights];
 };
 
 cbuffer cbMaterial : register(b2)
@@ -90,11 +82,10 @@ struct DomainOut
 {
     float3 Tangent : TANGENT;
     float3 PosL : POSITION;
-    float3 PosW : POSITION2;
+    float3 PosW : POSITION1;
     float4 PosH : SV_POSITION;
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
-    float4 ShadowPosH : POSITION1;
 };
  
 struct PatchTess
@@ -111,41 +102,6 @@ struct GBufferData
     float4 materialAlbedo : SV_TARGET3;
     float4 MaterialFresnelRoughness : SV_TARGET4;
 };
-
-// calculates shadow factor for shadow mapping
-float CalcShadowFactor(float4 posW, int cascadeID)
-{
-    float4 shadowPosH = mul(posW, gShadowTransform[cascadeID]);
-    
-    // Complete projection by doing division by w.
-    shadowPosH.xyz /= shadowPosH.w;
-
-    // Depth in NDC space.
-    float depth = shadowPosH.z;
-
-    uint width, height, numMips, numLayers;
-    gShadowMap.GetDimensions(0, width, height, numLayers, numMips);
-
-    // Texel size.
-    float dx = 1.0f / (float) width;
-
-    float percentLit = 0.0f;
-    const float2 offsets[9] =
-    {
-        float2(-dx, -dx), float2(0.0f, -dx), float2(dx, -dx),
-        float2(-dx, 0.0f), float2(0.0f, 0.0f), float2(dx, 0.0f),
-        float2(-dx, +dx), float2(0.0f, +dx), float2(dx, +dx)
-    };
-
-    [unroll]
-    for (int i = 0; i < 9; ++i)
-    {
-        percentLit += gShadowMap.SampleCmpLevelZero(gsamShadow,
-            float3(shadowPosH.xy + offsets[i], cascadeID), depth).r;
-    }
-    
-    return percentLit / 9.0f;
-}
 
 Vertex VS(Vertex vin)
 {
@@ -229,76 +185,9 @@ DomainOut DS(PatchTess patchTess,
     dout.NormalW = norm;
     dout.Tangent = tri[0].Tangent;
     dout.TexC = t;
-    
-    // Generate projective tex-coords to project shadow map onto scene.
-    dout.ShadowPosH = mul(posW, gShadowTransform[0]);
 
     return dout;
 }
-
-
-float4 PS(DomainOut pin) : SV_Target
-{
-    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC) * gDiffuseAlbedo;
-	
-#ifdef ALPHA_TEST
-	// Discard pixel if texture alpha < 0.1.  We do this test as soon 
-	// as possible in the shader so that we can potentially exit the
-	// shader early, thereby skipping the rest of the shader code.
-	clip(diffuseAlbedo.a - 0.1f);
-#endif
-    
-	// TBN
-    float3 bitangent = (cross(pin.NormalW, pin.Tangent));
-    bitangent = normalize(mul(bitangent, (float3x3) gWorld));
-    float3 tangent = normalize(mul(pin.Tangent, (float3x3) gWorld));
-    float3 normal = normalize(mul(pin.NormalW, (float3x3) gWorld));
-    float3x3 TBN = float3x3(pin.Tangent, bitangent, pin.NormalW);
-    
-	// normal from texture
-    float3 normalMap = gNormalMap.Sample(gsamAnisotropicWrap, pin.TexC).rgb;
-    normalMap = normalMap * 2.0f - 1.0f;
-    normalMap = normalize(mul(normalMap, TBN));
-	
-    // Vector from point being lit to eye. 
-    float3 toEyeW = gEyePosW - pin.PosL;
-    float distToEye = length(toEyeW);
-    toEyeW /= distToEye; // normalize
-
-    // Light terms.
-    float4 ambient = gAmbientLight * diffuseAlbedo;
-
-    const float shininess = 1.0f - gRoughness;
-    Material mat = { diffuseAlbedo, gFresnelR0, shininess };
-    float shadowFactor = 1.0f;
-    
-    for (uint cascade = 0; cascade < 4; cascade++)
-    {
-        float factor = CalcShadowFactor(float4(pin.PosW, 1.0f), cascade);
-        if (factor < 0.3f)
-        {
-            shadowFactor = factor;
-            break;
-        }
-    }
-    
-    float4 directLight = float4(ComputeDirectionalLight(gLights[0], mat, normalMap, toEyeW) * shadowFactor, 1.0f);
-    //float4 directLight = ComputeLighting(gLights, mat, pin.PosL, normalMap, toEyeW, shadowFactor); // old code
-   
-
-    float4 litColor = ambient + directLight;
-
-#ifdef FOG
-	float fogAmount = saturate((distToEye - gFogStart) / gFogRange);
-	litColor = lerp(litColor, gFogColor, fogAmount);
-#endif
-
-    // Common convention to take alpha from diffuse albedo.
-    litColor.a = diffuseAlbedo.a;
-    
-    return litColor;
-}
-
 
 GBufferData DeferredPS(DomainOut pin)
 {

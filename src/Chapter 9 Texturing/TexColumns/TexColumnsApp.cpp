@@ -19,7 +19,6 @@ using namespace DirectX::PackedVector;
 
 // #define DEBUG_VIEW
 // #define DEBUG
-// #define POSTEFFECTS
 
 const int gNumFrameResources = 3;
 
@@ -103,13 +102,11 @@ private:
 
 	void OnKeyboardInput(const GameTimer& gt);
 	void AnimateMaterials(const GameTimer& gt);
-	void AnimateLights(const GameTimer& gt);
 	void UpdateObjectCBs(const GameTimer& gt);
 	void UpdateLightCBs(const GameTimer& gt);
 	void UpdateMaterialCBs(const GameTimer& gt);
 	void UpdateMainPassCB(const GameTimer& gt);
 	void UpdatePostProcessCB(const GameTimer& gt);
-	void UpdateShadowTransform(const GameTimer& gt);
 
 	void LoadTexture(std::string name, std::wstring filename);
 	void LoadTextures();
@@ -128,9 +125,6 @@ private:
 	void DrawDeferredLights();
 	void DrawPostProcess();
 	void DrawShadowMaps();
-	void BuildPostProcessResources();
-	void BuildPostProcessPSO();
-	void BuildPostProcessRootSignature();
 
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
@@ -166,35 +160,6 @@ private:
 
 	Camera mCamera;
 	POINT mLastMousePos;
-
-	// For post-processing
-	ComPtr<ID3D12Resource> mPostProcessRenderTarget;
-	ComPtr<ID3D12Resource> mPostProcessRenderTargetUpload;
-	ComPtr<ID3D12DescriptorHeap> mPostProcessRTVHeap;
-	ComPtr<ID3D12DescriptorHeap> mPostProcessSRVHeap;
-	ComPtr<ID3D12PipelineState> mPostProcessPSO;
-	ComPtr<ID3D12RootSignature> mPostProcessRootSignature;
-	std::unordered_map<std::string, ComPtr<ID3DBlob>> mPostProcessShaders;
-
-	// For lighting
-	std::unique_ptr<ShadowMap> mShadowMap;
-	DirectX::BoundingSphere mSceneBounds;
-
-	float mLightNearZ = 0.0f;
-	float mLightFarZ = 0.0f;
-	XMFLOAT3 mLightPosW;
-
-	float mLightRotationAngle = 0.0f;
-	XMFLOAT3 mBaseLightDirections[3] = {
-		XMFLOAT3(0.57735f, -0.57735f, 0.57735f),
-		XMFLOAT3(-0.57735f, -0.57735f, 0.57735f),
-		XMFLOAT3(0.0f, -0.707f, -0.707f)
-	};
-	XMFLOAT3 mRotatedLightDirections[3] = {
-		XMFLOAT3(0.57735f, -0.57735f, 0.57735f),
-		XMFLOAT3(-0.57735f, -0.57735f, 0.57735f),
-		XMFLOAT3(0.0f, -0.707f, -0.707f)
-	};
 
 	UINT mSkyTexHeapIndex = 0;
 	UINT mShadowMapHeapIndex = 0;
@@ -249,14 +214,9 @@ bool TexColumnsApp::Initialize()
 	// so we have to query this information.
 	mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	mSceneBounds.Center = XMFLOAT3(0.0f, 0.0f, 0.0f);
-	mSceneBounds.Radius = 100.0f;
-
 	mCamera.SetPosition(-30.0f, 70.0f, -20.0f);
 	mCamera.Pitch(-5.3f);
 	mCamera.RotateY(0.7f);
-	mShadowMap = std::make_unique<ShadowMap>(
-		md3dDevice.Get(), 2048, 2048);
 
 	LoadTextures();
 	BuildRootSignature();
@@ -266,13 +226,6 @@ bool TexColumnsApp::Initialize()
 	BuildMaterials();
 	BuildRenderItems();
 	BuildLightObjects();
-
-#if defined(POSTEFFECTS)
-	BuildPostProcessResources();
-	BuildPostProcessRootSignature();
-	BuildPostProcessPSO();
-#endif
-
 	BuildFrameResources();
 	BuildPSOs();
 
@@ -345,9 +298,7 @@ void TexColumnsApp::Update(const GameTimer& gt)
 		CloseHandle(eventHandle);
 	}
 
-	AnimateLights(gt);
 	AnimateMaterials(gt);
-	UpdateShadowTransform(gt);
 	UpdateObjectCBs(gt);
 	UpdateLightCBs(gt);
 	UpdateMaterialCBs(gt);
@@ -472,19 +423,6 @@ void TexColumnsApp::AnimateMaterials(const GameTimer& gt)
 
 }
 
-void TexColumnsApp::AnimateLights(const GameTimer& gt)
-{
-	mLightRotationAngle += 0.1f * gt.DeltaTime();
-
-	XMMATRIX R = XMMatrixRotationY(mLightRotationAngle);
-	for (int i = 0; i < 3; ++i)
-	{
-		XMVECTOR lightDir = XMLoadFloat3(&mBaseLightDirections[i]);
-		lightDir = XMVector3TransformNormal(lightDir, R);
-		XMStoreFloat3(&mRotatedLightDirections[i], lightDir);
-	}
-}
-
 void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
 {
 	auto currObjectCB = mCurrFrameResource->ObjectCB.get();
@@ -544,7 +482,7 @@ void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
 			{
 			case LightType::Directional:
 			{
-				float SphereRadiuses[4] = { 100, 500, 5000, 10000 };
+				float SphereRadiuses[4] = { 100, 150, 200, 500 };
 
 				//for each cascade
 				for (int i = 0; i < 4; i++)
@@ -685,52 +623,6 @@ void TexColumnsApp::UpdatePostProcessCB(const GameTimer& gt)
 	currPostProcessCB->CopyData(0, postProcessSettings);
 }
 
-void TexColumnsApp::UpdateShadowTransform(const GameTimer& gt)
-{
-		float SphereRadiuses[4] = { 100, 150, 200, 500 };
-
-		//for each cascade
-		for (int i = 0; i < 4; i++)
-		{
-			// Only the first "main" light casts a shadow. Why? Idk, you tell me.
-			XMVECTOR lightDir = XMLoadFloat3(&mRotatedLightDirections[0]);
-			XMVECTOR lightPos = mCamera.GetPosition() - 2.0f * SphereRadiuses[i] * lightDir;
-			XMVECTOR targetPos = mCamera.GetPosition();
-			XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-			XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
-
-			XMStoreFloat3(&mLightPosW, lightPos);
-
-			// Transform bounding sphere to light space.
-			XMFLOAT3 sphereCenterLS;
-			XMStoreFloat3(&sphereCenterLS, XMVector3TransformCoord(targetPos, lightView));
-
-			// Ortho frustum in light space encloses scene.
-			float l = sphereCenterLS.x - SphereRadiuses[i];
-			float b = sphereCenterLS.y - SphereRadiuses[i];
-			float n = sphereCenterLS.z - SphereRadiuses[i];
-			float r = sphereCenterLS.x + SphereRadiuses[i];
-			float t = sphereCenterLS.y + SphereRadiuses[i];
-			float f = sphereCenterLS.z + SphereRadiuses[i];
-
-			mLightNearZ = n;
-			mLightFarZ = f;
-			XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(l, r, b, t, n, f);
-
-			// Transform NDC space [-1,+1]^2 to texture space [0,1]^2
-			XMMATRIX T(
-				0.5f, 0.0f, 0.0f, 0.0f,
-				0.0f, -0.5f, 0.0f, 0.0f,
-				0.0f, 0.0f, 1.0f, 0.0f,
-				0.5f, 0.5f, 0.0f, 1.0f);
-
-			XMMATRIX S = lightView * lightProj;
-			XMMATRIX S1 = S * T;
-			XMStoreFloat4x4(&mMainPassCB.LightViewProj[i], XMMatrixTranspose(S));
-			XMStoreFloat4x4(&mMainPassCB.ShadowTransform[i], XMMatrixTranspose(S1));
-		}
-}
-
 void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 {
 	XMMATRIX view = mCamera.GetView();
@@ -755,12 +647,6 @@ void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	mMainPassCB.TotalTime = gt.TotalTime();
 	mMainPassCB.DeltaTime = gt.DeltaTime();
 	mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
-	mMainPassCB.Lights[0].Direction = mRotatedLightDirections[0];
-	mMainPassCB.Lights[0].Strength = { 0.9f, 0.8f, 0.7f };
-	mMainPassCB.Lights[1].Direction = mRotatedLightDirections[1];
-	mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
-	mMainPassCB.Lights[2].Direction = mRotatedLightDirections[2];
-	mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
 
 	auto currPassCB = mCurrFrameResource->PassCB.get();
 	currPassCB->CopyData(0, mMainPassCB);
@@ -928,11 +814,6 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	srvDesc.Texture2D.MipLevels = 1;
 	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 	md3dDevice->CreateShaderResourceView(nullptr, &srvDesc, nullSrv);
-
-	mShadowMap->BuildDescriptors(
-		CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, mShadowMapHeapIndex, mCbvSrvUavDescriptorSize),
-		CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, mShadowMapHeapIndex, mCbvSrvUavDescriptorSize),
-		CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 1, mDsvDescriptorSize));
 }
 
 void TexColumnsApp::BuildShadersAndInputLayout()
@@ -946,7 +827,6 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "VS", "vs_5_0");
 	mShaders["tessHS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "HS", "hs_5_0");
 	mShaders["tessDS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "DS", "ds_5_0");
-	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "PS", "ps_5_0");
 	mShaders["deferredPS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "DeferredPS", "ps_5_0");
 	
 	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
@@ -1092,8 +972,8 @@ void TexColumnsApp::BuildPSOs()
 	};
 	opaquePsoDesc.PS =
 	{
-		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
-		mShaders["opaquePS"]->GetBufferSize()
+		nullptr,
+		0
 	};
 	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 #ifdef DEBUG_VIEW
@@ -1110,7 +990,6 @@ void TexColumnsApp::BuildPSOs()
 	opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
 	opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
 	opaquePsoDesc.DSVFormat = mDepthStencilFormat;
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaque"])));
 
 	//
 	// PSO for shadow map pass.
@@ -1145,24 +1024,6 @@ void TexColumnsApp::BuildPSOs()
 	smapPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
 	smapPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapPsoDesc, IID_PPV_ARGS(&mPSOs["shadow_opaque"])));
-
-	//
-	// PSO for debug layer.
-	//
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc = smapPsoDesc;
-	debugPsoDesc.pRootSignature = mRootSignature["default"].Get();
-	debugPsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["debugVS"]->GetBufferPointer()),
-		mShaders["debugVS"]->GetBufferSize()
-	};
-	debugPsoDesc.GS = {nullptr, 0};
-	debugPsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["debugPS"]->GetBufferPointer()),
-		mShaders["debugPS"]->GetBufferSize()
-	};
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc, IID_PPV_ARGS(&mPSOs["debug"])));
 
 	//
 	// PSO for sky.
@@ -1201,6 +1062,11 @@ void TexColumnsApp::BuildPSOs()
 		reinterpret_cast<BYTE*>(mShaders["deferredPS"]->GetBufferPointer()),
 		mShaders["deferredPS"]->GetBufferSize()
 	};
+#ifdef DEBUG_VIEW
+	deferredGeometryPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+#else
+	deferredGeometryPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+#endif // DEBUG_VIEW
 	deferredGeometryPsoDesc.NumRenderTargets = 5;
 	deferredGeometryPsoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;		   // diffuse
 	deferredGeometryPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;    // zwzanashih
@@ -1391,9 +1257,9 @@ void TexColumnsApp::BuildLightObjects()
 		mAllLights.at(i)->shadowMap = new ShadowMap(md3dDevice.Get(), 2048, 2048);
 
 		mAllLights.at(i)->shadowMap->BuildDescriptors(
-			CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, mShadowMapHeapIndex + 1 + i, mCbvSrvUavDescriptorSize),
-			CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, mShadowMapHeapIndex + 1 + i, mCbvSrvUavDescriptorSize),
-			CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 1 + 1 + i, mDsvDescriptorSize));
+			CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, mShadowMapHeapIndex + i, mCbvSrvUavDescriptorSize),
+			CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, mShadowMapHeapIndex + i, mCbvSrvUavDescriptorSize),
+			CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 1 + i, mDsvDescriptorSize));
 	}
 }
 
@@ -1597,121 +1463,6 @@ void TexColumnsApp::DrawShadowMaps()
 			D3D12_RESOURCE_STATE_DEPTH_WRITE,
 			D3D12_RESOURCE_STATE_GENERIC_READ));
 	}
-}
-
-void TexColumnsApp::BuildPostProcessResources()
-{
-	// Create render target for post-processing
-	D3D12_RESOURCE_DESC renderTargetDesc;
-	ZeroMemory(&renderTargetDesc, sizeof(D3D12_RESOURCE_DESC));
-	renderTargetDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-	renderTargetDesc.Alignment = 0;
-	renderTargetDesc.Width = mClientWidth;
-	renderTargetDesc.Height = mClientHeight;
-	renderTargetDesc.DepthOrArraySize = 1;
-	renderTargetDesc.MipLevels = 1;
-	renderTargetDesc.Format = mBackBufferFormat;
-	renderTargetDesc.SampleDesc.Count = 1;
-	renderTargetDesc.SampleDesc.Quality = 0;
-	renderTargetDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-	renderTargetDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-
-	D3D12_CLEAR_VALUE clearValue;
-	clearValue.Format = mBackBufferFormat;
-	memcpy(clearValue.Color, Colors::LightSteelBlue, sizeof(float) * 4);
-
-	ThrowIfFailed(md3dDevice->CreateCommittedResource(
-		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-		D3D12_HEAP_FLAG_NONE,
-		&renderTargetDesc,
-		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-		&clearValue,
-		IID_PPV_ARGS(&mPostProcessRenderTarget)));
-
-	// Create RTV heap
-	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = 1;
-	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	rtvHeapDesc.NodeMask = 0;
-	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
-		&rtvHeapDesc, IID_PPV_ARGS(&mPostProcessRTVHeap)));
-
-	// Create RTV
-	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(
-		mPostProcessRTVHeap->GetCPUDescriptorHandleForHeapStart());
-	md3dDevice->CreateRenderTargetView(
-		mPostProcessRenderTarget.Get(), nullptr, rtvHandle);
-
-	// Create SRV heap
-	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 2;
-	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
-		&srvHeapDesc, IID_PPV_ARGS(&mPostProcessSRVHeap)));
-
-	// Create SRV for render target
-	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(
-		mPostProcessSRVHeap->GetCPUDescriptorHandleForHeapStart());
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.Format = mBackBufferFormat;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MostDetailedMip = 0;
-	srvDesc.Texture2D.MipLevels = 1;
-	md3dDevice->CreateShaderResourceView(
-		mPostProcessRenderTarget.Get(), &srvDesc, srvHandle);
-
-	// Create SRV for depth buffer
-	srvHandle.Offset(1, mCbvSrvDescriptorSize);
-	srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-	md3dDevice->CreateShaderResourceView(
-		mDepthStencilBuffer.Get(), &srvDesc, srvHandle);
-}
-
-void TexColumnsApp::BuildPostProcessPSO()
-{
-}
-
-void TexColumnsApp::BuildPostProcessRootSignature()
-{
-	CD3DX12_DESCRIPTOR_RANGE srvTable[2];
-	srvTable[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // t0, base texture
-	srvTable[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // t1, depth buffer
-
-	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
-	slotRootParameter[0].InitAsDescriptorTable(1, &srvTable[0], D3D12_SHADER_VISIBILITY_PIXEL);
-	slotRootParameter[1].InitAsDescriptorTable(1, &srvTable[1], D3D12_SHADER_VISIBILITY_PIXEL);
-	slotRootParameter[2].InitAsConstantBufferView(0, 0, D3D12_SHADER_VISIBILITY_PIXEL); // PostProcessSettings (b0)
-
-	CD3DX12_STATIC_SAMPLER_DESC sampler(
-		0, // shaderRegister
-		D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressU
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP, // addressV
-		D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
-
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter,
-		1, &sampler,
-		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-
-	ComPtr<ID3DBlob> serializedRootSig = nullptr;
-	ComPtr<ID3DBlob> errorBlob = nullptr;
-	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-	if (errorBlob != nullptr)
-	{
-		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-	}
-	ThrowIfFailed(hr);
-
-	ThrowIfFailed(md3dDevice->CreateRootSignature(
-		0,
-		serializedRootSig->GetBufferPointer(),
-		serializedRootSig->GetBufferSize(),
-		IID_PPV_ARGS(&mPostProcessRootSignature)));
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> TexColumnsApp::GetStaticSamplers()
