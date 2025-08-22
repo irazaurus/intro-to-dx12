@@ -69,8 +69,8 @@ struct LightObject
 {
 	DirectX::XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
 	float FalloffStart = 1.0f;                          // point/spot light only
-	DirectX::XMFLOAT3 Direction = { 0.0f, -1.0f, 0.0f };// directional/spot light only
-	float FalloffEnd = 10.0f;                           // point/spot light only
+	DirectX::XMFLOAT3 Direction = { 0.57735f, -0.57735f, 0.57735f };// directional/spot light only
+	float FalloffEnd = 50.0f;                           // point/spot light only
 	DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  // point/spot light only
 	float SpotPower = 64.0f;                            // spot light only
 	DirectX::XMFLOAT3 Color = { 1.f, 1.f, 1.f };        // rgb
@@ -518,9 +518,10 @@ void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
 			{
 				lightPos = XMLoadFloat3(&e->Position);
 				lightDir = XMLoadFloat3(&e->Direction);
+				lightPos = lightPos - 20 * lightDir;
 				targetPos = lightPos + lightDir;
 				lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
-				lightProj = XMMatrixPerspectiveFovLH(XM_PI / 6, 1.0f, 10.f, e->FalloffEnd);
+				lightProj = XMMatrixPerspectiveFovLH(XM_PI / 2.5f, 1.0f, 10.f, e->FalloffEnd * 10);
 
 				XMMATRIX S = lightView * lightProj;
 				XMMATRIX S1 = S * T;
@@ -1222,7 +1223,7 @@ void TexColumnsApp::BuildRenderItems()
 	BuildRenderItem("quad", "bricks0", XMMatrixIdentity(), (int)RenderLayer::Debug);
 
 	BuildRenderItem("box", "bricks0", XMMatrixTranslation(15.f, 0.f, 0.f));
-	BuildRenderItem("grid", "bricks0", XMMatrixTranslation(0.f, -5.f, 10.f));
+	BuildRenderItem("grid", "bricks0", XMMatrixTranslation(0.f, -5.f, 10.f), 0, 3.f);
 	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(0.f, -5.f, 20.f));
 	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(-30.f, -5.f, 40.f));
 	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(30.f, -5.f, 0.f));
@@ -1232,19 +1233,24 @@ void TexColumnsApp::BuildLightObjects()
 {
 	auto dir1 = std::make_unique<LightObject>();
 	dir1->LightType = LightType::Directional;
+	dir1->Direction = { 0.57735f, -0.57735f, 0.57735f };
 	mAllLights.push_back(std::move(dir1));
 	
 	auto spot1 = std::make_unique<LightObject>();
 	spot1->LightType = LightType::Spotlight;
-	spot1->Color = { 1.f, 0.243f, 0.584f };
-	spot1->Position = { 10.f, 0.f, 0.f };
-	spot1->FalloffEnd = 100.f;
+	spot1->Color = { 1.f, 0.243f, 0.584f };  // pink
+	spot1->Direction = { -0.57735f, -0.57735f, 0.57735f };
+	spot1->Position = { 0.f, 50.f, -10.f };
+	spot1->Strength = { 10.f, 10.f, 10.f };
+	spot1->FalloffEnd = 150.f;
+	spot1->SpotPower = 100.f;
 	mAllLights.push_back(std::move(spot1));
 
 	auto point1 = std::make_unique<LightObject>();
 	point1->LightType = LightType::Pointlight;
-	point1->Color = { 0.243f, 1.f, 0.91f };
-	point1->Position = { -10.f, 0.f, 0.f };
+	point1->Color = { 0.243f, 1.f, 0.91f }; // blue
+	point1->Position = { -10.f, 1.f, 0.f };
+	point1->Strength = { 2.f, 2.f, 2.f };
 	mAllLights.push_back(std::move(point1));
 
 	auto srvCpuStart = mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
