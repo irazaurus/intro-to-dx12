@@ -95,6 +95,10 @@ float CalcShadowFactor(float4 posW, int cascadeID)
     return percentLit / 9.0f;
 }
 
+struct VertexIn
+{
+    float3 PosL : POSITION;
+};
 
 struct VertexOut
 {
@@ -113,6 +117,15 @@ VertexOut VS(uint vertexID : SV_VertexID)
     
     VertexOut vo;
     vo.PosH = float4(verts[vertexID], 0, 1);
+    return vo;
+}
+
+VertexOut LightsGeometryVS(VertexIn vi)
+{
+    VertexOut vo;
+    
+    vo.PosH = mul(mul(float4(vi.PosL, 1.f), LWorld), gViewProj);
+    
     return vo;
 }
 

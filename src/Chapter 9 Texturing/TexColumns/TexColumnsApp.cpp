@@ -77,6 +77,7 @@ struct LightObject
 	LightType LightType = LightType::Directional;
 	int lightCBIndex = 0;
 	int NumFramesDirty = gNumFrameResources;
+	std::string GeoName;
 	ShadowMap* shadowMap;
 };
 
@@ -404,16 +405,16 @@ void TexColumnsApp::OnKeyboardInput(const GameTimer& gt)
 	const float dt = gt.DeltaTime();
 
 	if (GetAsyncKeyState('W') & 0x8000)
-		mCamera.Walk(20.0f * dt);
+		mCamera.Walk(30.0f * dt);
 
 	if (GetAsyncKeyState('S') & 0x8000)
-		mCamera.Walk(-20.0f * dt);
+		mCamera.Walk(-30.0f * dt);
 
 	if (GetAsyncKeyState('A') & 0x8000)
-		mCamera.Strafe(-20.0f * dt);
+		mCamera.Strafe(-30.0f * dt);
 
 	if (GetAsyncKeyState('D') & 0x8000)
-		mCamera.Strafe(20.0f * dt);
+		mCamera.Strafe(30.0f * dt);
 
 	mCamera.UpdateViewMatrix();
 }
@@ -466,8 +467,7 @@ void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
 			lightConstants.SpotPower = e->SpotPower;
 			lightConstants.Color = e->Color;
 			lightConstants.LightType = (int)e->LightType;
-			XMStoreFloat4x4(&lightConstants.World, XMMatrixTranspose(XMMatrixTranslation(e->Position.x, e->Position.y, e->Position.z)));
-			
+
 			XMVECTOR lightDir, lightPos, targetPos;
 			XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 			XMMATRIX lightView, lightProj;
@@ -516,6 +516,21 @@ void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
 			}
 			case LightType::Spotlight:
 			{
+				XMFLOAT3 ConeScale;
+				ConeScale.y = e->FalloffEnd;
+				ConeScale.x = 20 / ConeScale.y;
+				ConeScale.x = ConeScale.z = ConeScale.x * e->SpotPower * 8;
+				//calculate rotation matrix from start and target direction vectors
+				XMVECTOR StartDir = XMVectorSet(0.0f, -1.0f, 0.0f, 0.0f);
+				XMVECTOR TargetDir = XMVector3Normalize(XMLoadFloat3(&e->Direction));
+				XMVECTOR RotationAxis = XMVector3Cross(StartDir, TargetDir);
+				float RotAngle = acosf(XMVectorGetX(XMVector3Dot(StartDir, TargetDir)));
+
+				XMStoreFloat4x4(&lightConstants.World, XMMatrixTranspose(
+					XMMatrixScaling(ConeScale.x, ConeScale.y, ConeScale.z) *
+					XMMatrixRotationAxis(XMVector3Normalize(RotationAxis), RotAngle) *
+					XMMatrixTranslation(e->Position.x, e->Position.y, e->Position.z)));
+
 				lightPos = XMLoadFloat3(&e->Position);
 				lightDir = XMLoadFloat3(&e->Direction);
 				lightPos = lightPos - 20 * lightDir;
@@ -532,6 +547,10 @@ void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
 			}
 			case LightType::Pointlight:
 			{
+				XMStoreFloat4x4(&lightConstants.World,
+					XMMatrixTranspose(XMMatrixScaling(e->FalloffEnd * e->Strength.x, e->FalloffEnd * e->Strength.y, e->FalloffEnd * e->Strength.z)
+					* XMMatrixTranslation(e->Position.x, e->Position.y, e->Position.z)));
+
 				lightPos = XMLoadFloat3(&e->Position);
 
 				lightProj = XMMatrixPerspectiveFovLH(XM_PIDIV2, 1.0f, 0.1f, e->FalloffEnd);
@@ -843,6 +862,7 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 
 	mShaders["deferredLightsVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["deferredLightsPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["deferredLightsGeometryVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "LightsGeometryVS", "vs_5_1");
 	mShaders["deferredAmbientPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "AmbientPS", "ps_5_1");
 	
 	mShaders["postVS"] = d3dUtil::CompileShader(L"Shaders\\PostProcessing.hlsl", nullptr, "VS", "vs_5_0");
@@ -867,6 +887,8 @@ void TexColumnsApp::BuildShapeGeometry()
 	allMeshData.push_back( geoGen.CreateBox(10.0f, 10.0f, 10.0f, 3) );                // box
 	allMeshData.push_back( geoGen.LoadModel("..\\..\\Models\\trex.obj"));             // trex
 	allMeshData.push_back( geoGen.LoadModel("..\\..\\Models\\Baryonyx.obj"));         // baryonyx
+	allMeshData.push_back( geoGen.CreateCone(1.f, 3.f, 20, 20) );					  // cone for spot
+	allMeshData.push_back( geoGen.CreateSphere(1.f, 10, 10) );					      // sphere for point
 
 	//
 	// We are concatenating all the geometry into one big vertex/index buffer.  So
@@ -1079,7 +1101,6 @@ void TexColumnsApp::BuildPSOs()
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC deferredPsoDesc = {};
 	deferredPsoDesc.InputLayout = { nullptr, 0 };
 	deferredPsoDesc.pRootSignature = mRootSignature["default"].Get();
-
 	deferredPsoDesc.VS =
 	{
 	 reinterpret_cast<BYTE*>(mShaders["deferredLightsVS"]->GetBufferPointer()),
@@ -1090,9 +1111,7 @@ void TexColumnsApp::BuildPSOs()
 	 reinterpret_cast<BYTE*>(mShaders["deferredLightsPS"]->GetBufferPointer()),
 	 mShaders["deferredLightsPS"]->GetBufferSize()
 	};
-
 	deferredPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-
 
 	CD3DX12_BLEND_DESC blendDesc = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	blendDesc.RenderTarget[0].BlendEnable = true;
@@ -1101,7 +1120,6 @@ void TexColumnsApp::BuildPSOs()
 	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
 	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-
 	deferredPsoDesc.BlendState = blendDesc;
 
 	deferredPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
@@ -1116,12 +1134,38 @@ void TexColumnsApp::BuildPSOs()
 
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLights"])));
 
+	//
+	// PSO for ambient
+	//
 	deferredPsoDesc.PS =
 	{
 		reinterpret_cast<BYTE*>(mShaders["deferredAmbientPS"]->GetBufferPointer()),
 		mShaders["deferredAmbientPS"]->GetBufferSize()
 	};
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredPsoDesc, IID_PPV_ARGS(&mPSOs["deferredAmbient"])));
+
+	//
+	// PSO for using geometry for lights
+	//
+	deferredPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+	deferredPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;
+	//deferredPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME; // for debug
+	deferredPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_GREATER;
+	deferredPsoDesc.DepthStencilState.DepthEnable = true;
+	deferredPsoDesc.DepthStencilState.StencilEnable = true;
+	deferredPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+
+	deferredPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["deferredLightsGeometryVS"]->GetBufferPointer()),
+		mShaders["deferredLightsGeometryVS"]->GetBufferSize()
+	};
+	deferredPsoDesc.PS =
+	{
+	 reinterpret_cast<BYTE*>(mShaders["deferredLightsPS"]->GetBufferPointer()),
+	 mShaders["deferredLightsPS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLightsGeometry"])));
 
 	//
 	// PSO for post process
@@ -1259,6 +1303,20 @@ void TexColumnsApp::BuildLightObjects()
 
 	for (size_t i = 0; i < mAllLights.size(); i++)
 	{
+		switch (mAllLights.at(i)->LightType)
+		{
+		case LightType::Directional:
+			break;
+
+		case LightType::Pointlight:
+			mAllLights.at(i)->GeoName = "sphere";
+			break;
+
+		case LightType::Spotlight:
+			mAllLights.at(i)->GeoName = "cone";
+			break;
+		}
+
 		mAllLights.at(i)->lightCBIndex = i;
 		mAllLights.at(i)->shadowMap = new ShadowMap(md3dDevice.Get(), 2048, 2048);
 
@@ -1357,7 +1415,6 @@ void TexColumnsApp::DrawDeferredLights()
 
 	mCommandList->SetGraphicsRootConstantBufferView(10, passCB->GetGPUVirtualAddress());
 	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	mCommandList->SetPipelineState(mPSOs["deferredLights"].Get());
 
 	mCommandList->RSSetViewports(1, &mScreenViewport);
 	mCommandList->RSSetScissorRects(1, &mScissorRect);
@@ -1384,7 +1441,22 @@ void TexColumnsApp::DrawDeferredLights()
 		D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + Light->lightCBIndex * lightCBByteSize;
 		mCommandList->SetGraphicsRootConstantBufferView(11, lightCBAddress);
 
-		mCommandList->DrawInstanced(6, 1, 0, 0); // todo 3?
+		if (Light->LightType == LightType::Directional)
+		{
+			mCommandList->SetPipelineState(mPSOs["deferredLights"].Get());
+			mCommandList->DrawInstanced(6, 1, 0, 0);
+		}
+		else
+		{
+			mCommandList->SetPipelineState(mPSOs["deferredLightsGeometry"].Get());
+
+			mCommandList->IASetVertexBuffers(0, 1, &mGeometries["shapeGeo"]->VertexBufferView());
+			mCommandList->IASetIndexBuffer(&mGeometries["shapeGeo"]->IndexBufferView());
+
+			mCommandList->DrawIndexedInstanced(mGeometries["shapeGeo"]->DrawArgs[Light->GeoName].IndexCount, 1,
+				mGeometries["shapeGeo"]->DrawArgs[Light->GeoName].StartIndexLocation,
+				mGeometries["shapeGeo"]->DrawArgs[Light->GeoName].BaseVertexLocation, 0);
+		}
 	}
 
 	mCommandList->SetPipelineState(mPSOs["deferredAmbient"].Get());
