@@ -2,6 +2,8 @@
 // TexColumnsApp.cpp by Frank Luna (C) 2015 All Rights Reserved.
 //***************************************************************************************
 
+#define NOMINMAX
+
 #include "../../Common/d3dApp.h"
 #include "../../Common/MathHelper.h"
 #include "../../Common/UploadBuffer.h"
@@ -21,6 +23,14 @@ using namespace DirectX::PackedVector;
 // #define DEBUG
 
 const int gNumFrameResources = 3;
+
+enum class RenderLayer : int
+{
+	Opaque = 0,
+	Debug,
+	Sky,
+	Count
+};
 
 // Lightweight structure stores parameters to draw a shape.  This will
 // vary from app-to-app.
@@ -55,14 +65,9 @@ struct RenderItem
 	UINT IndexCount = 0;
 	UINT StartIndexLocation = 0;
 	int BaseVertexLocation = 0;
-};
-
-enum class RenderLayer : int
-{
-	Opaque = 0,
-	Debug,
-	Sky,
-	Count
+	BoundingBox Bounds;
+	std::string geoName;
+	int layer;
 };
 
 struct LightObject
@@ -156,6 +161,7 @@ private:
 
 	// Render items divided by PSO.
 	std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
+	std::vector<RenderItem*> mVisibleRitems[(int)RenderLayer::Count];
 
 	PassConstants mMainPassCB;
 
@@ -435,6 +441,7 @@ void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
 		{
 			XMMATRIX world = XMLoadFloat4x4(&e->World);
 			XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
+			e->Geo->DrawArgs[e->geoName].Bounds.Transform(e->Bounds, XMLoadFloat4x4(&e->World));
 
 			ObjectConstants objConstants;
 			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
@@ -446,6 +453,9 @@ void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
 			// Next FrameResource need to be updated too.
 			e->NumFramesDirty--;
 		}
+
+		if (mCamera.Bounds.Intersects(e->Bounds))
+			mVisibleRitems[e->layer].push_back(e.get());
 	}
 }
 
@@ -916,6 +926,37 @@ void TexColumnsApp::BuildShapeGeometry()
 		submesh.IndexCount = (UINT)mesh.Indices32.size();
 		submesh.StartIndexLocation = indexOffsets.at(i);
 		submesh.BaseVertexLocation = vertexOffsets.at(i);
+
+		XMFLOAT3 vMin = { FLT_MAX, FLT_MAX, FLT_MAX };
+		XMFLOAT3 vMax = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+
+		for (size_t j = 0; j < mesh.Vertices.size(); ++j)
+		{
+			auto& vertex = mesh.Vertices[j];
+			vMin.x = std::min(vMin.x, vertex.Position.x);
+			vMin.y = std::min(vMin.y, vertex.Position.y);
+			vMin.z = std::min(vMin.z, vertex.Position.z);
+
+			vMax.x = std::max(vMax.x, vertex.Position.x);
+			vMax.y = std::max(vMax.y, vertex.Position.y);
+			vMax.z = std::max(vMax.z, vertex.Position.z);
+		}
+
+		// generating bounding box
+		XMFLOAT3 center = {
+		  0.5f * (vMin.x + vMax.x),
+		  0.5f * (vMin.y + vMax.y),
+		  0.5f * (vMin.z + vMax.z)
+		};
+		XMFLOAT3 extents = {
+		  0.5f * (vMax.x - vMin.x),
+		  0.5f * (vMax.y - vMin.y),
+		  0.5f * (vMax.z - vMin.z)
+		};
+
+		BoundingBox box(center, extents);
+		submesh.Bounds = box;
+
 		allSubmeshes.push_back(submesh);
 		totalVertexCount += mesh.Vertices.size();
 	}
@@ -1249,13 +1290,16 @@ void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMA
 	ptr->ObjCBIndex = ObjCBIndex++;
 	ptr->Mat = mMaterials[material].get();
 	ptr->Geo = mGeometries["shapeGeo"].get();
+	ptr->geoName = name;
 	if (layer == 0)
 		ptr->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
 	else
 		ptr->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	ptr->IndexCount = ptr->Geo->DrawArgs[name].IndexCount;
+	ptr->Geo->DrawArgs[name].Bounds.Transform(ptr->Bounds, XMLoadFloat4x4(&ptr->World));
 	ptr->StartIndexLocation = ptr->Geo->DrawArgs[name].StartIndexLocation;
 	ptr->BaseVertexLocation = ptr->Geo->DrawArgs[name].BaseVertexLocation;
+	ptr->layer = layer;
 
 	mRitemLayer[layer].push_back(ptr.get());
 	mAllRitems.push_back(std::move(ptr));
@@ -1403,7 +1447,12 @@ void TexColumnsApp::DrawDeferredGeometry()
 	mCommandList->SetGraphicsRootConstantBufferView(11, passCB->GetGPUVirtualAddress());
 
 	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
-	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+	DrawRenderItems(mCommandList.Get(), mVisibleRitems[(int)RenderLayer::Opaque]);
+	
+	for (int i = 0; i < mVisibleRitems->size(); i++)
+	{
+		mVisibleRitems[i].clear();
+	}
 }
 
 void TexColumnsApp::DrawDeferredLights()

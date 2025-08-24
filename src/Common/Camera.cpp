@@ -9,6 +9,7 @@ using namespace DirectX;
 Camera::Camera()
 {
 	SetLens(0.25f*MathHelper::Pi, 1.0f, 1.0f, 1000.0f);
+	BoundingFrustum::CreateFromMatrix(BoundsOriginal, XMLoadFloat4x4(&mProj));
 }
 
 Camera::~Camera()
@@ -269,6 +270,9 @@ void Camera::UpdateViewMatrix()
 		mView(3, 3) = 1.0f;
 
 		mViewDirty = false;
+
+		BoundingFrustum::CreateFromMatrix(BoundsOriginal, GetProj());
+		BoundsOriginal.Transform(Bounds, XMMatrixInverse(nullptr, GetView()));
 	}
 }
 
