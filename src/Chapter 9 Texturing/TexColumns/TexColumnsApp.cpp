@@ -68,6 +68,8 @@ struct RenderItem
 	BoundingBox Bounds;
 	std::string geoName;
 	int layer;
+	std::vector<std::string> LODGeoNames;
+	int currentLOD = 0;
 };
 
 struct LightObject
@@ -123,7 +125,7 @@ private:
 	void BuildPSOs();
 	void BuildFrameResources();
 	void BuildMaterials();
-	void BuildRenderItem(std::string name, std::string material, XMMATRIX translate, int layer = (int)RenderLayer::Opaque, float scale = 1.f, float scaleTex = 1.f);
+	void BuildRenderItem(std::string name, std::string material, XMMATRIX translate, std::vector<std::string>* LODGeoNames, int layer = (int)RenderLayer::Opaque, float scale = 1.f, float scaleTex = 1.f);
 	void BuildRenderItems();
 	void BuildLightObjects();
 	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -435,11 +437,10 @@ void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
 	auto currObjectCB = mCurrFrameResource->ObjectCB.get();
 	for (auto& e : mAllRitems)
 	{
-		// Only update the cbuffer data if the constants have changed.  
-		// This needs to be tracked per frame resource.
+		XMMATRIX world = XMLoadFloat4x4(&e->World);
+		
 		if (e->NumFramesDirty > 0)
 		{
-			XMMATRIX world = XMLoadFloat4x4(&e->World);
 			XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
 			e->Geo->DrawArgs[e->geoName].Bounds.Transform(e->Bounds, XMLoadFloat4x4(&e->World));
 
@@ -455,7 +456,18 @@ void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
 		}
 
 		if (mCamera.Bounds.Intersects(e->Bounds))
+		{
 			mVisibleRitems[e->layer].push_back(e.get());
+
+			XMVECTOR worldPos, temp;
+			XMMatrixDecompose(&temp, &temp, &worldPos, world);
+			float camToObjDistance;
+			XMStoreFloat(&camToObjDistance, XMVector3Length(XMVectorSubtract(mCamera.GetPosition(), worldPos)));
+
+			if (camToObjDistance > 150.f)
+				e->currentLOD = 1;
+			else e->currentLOD = 0;
+		}
 	}
 }
 
@@ -900,7 +912,7 @@ void TexColumnsApp::BuildShapeGeometry()
 	allMeshData.push_back( geoGen.CreateCone(1.f, 3.f, 20, 20) );					  // cone for spot
 	allMeshData.push_back( geoGen.CreateSphere(1.f, 10, 10) );					      // sphere for point
 
-	//
+	// 
 	// We are concatenating all the geometry into one big vertex/index buffer.  So
 	// define the regions in the buffer each submesh covers.
 	//
@@ -1282,7 +1294,7 @@ void TexColumnsApp::BuildMaterials()
 	mMaterials["sky"] = std::move(sky);
 }
 
-void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMATRIX translate, int layer, float scale, float scaleTex)
+void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMATRIX translate, std::vector<std::string>* LODGeoNames, int layer, float scale, float scaleTex)
 {
 	auto ptr = std::make_unique<RenderItem>();
 	XMStoreFloat4x4(&ptr->World, XMMatrixScaling(scale, scale, scale) * translate);
@@ -1300,6 +1312,8 @@ void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMA
 	ptr->StartIndexLocation = ptr->Geo->DrawArgs[name].StartIndexLocation;
 	ptr->BaseVertexLocation = ptr->Geo->DrawArgs[name].BaseVertexLocation;
 	ptr->layer = layer;
+	if (LODGeoNames != nullptr)
+		ptr->LODGeoNames = *LODGeoNames;
 
 	mRitemLayer[layer].push_back(ptr.get());
 	mAllRitems.push_back(std::move(ptr));
@@ -1307,14 +1321,16 @@ void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMA
 
 void TexColumnsApp::BuildRenderItems()
 {
-	BuildRenderItem("sphere", "sky", XMMatrixIdentity(), (int) RenderLayer::Sky, 5000.0f);
-	BuildRenderItem("quad", "bricks0", XMMatrixIdentity(), (int)RenderLayer::Debug);
+	BuildRenderItem("sphere", "sky", XMMatrixIdentity(), nullptr, (int) RenderLayer::Sky, 5000.0f);
+	BuildRenderItem("quad", "bricks0", XMMatrixIdentity(), nullptr, (int)RenderLayer::Debug);
 
-	BuildRenderItem("box", "bricks0", XMMatrixTranslation(15.f, 0.f, 0.f));
-	BuildRenderItem("grid", "bricks0", XMMatrixTranslation(0.f, -5.f, 10.f), 0, 3.f);
-	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(0.f, -5.f, 20.f));
-	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(-30.f, -5.f, 40.f));
-	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(30.f, -5.f, 0.f));
+	BuildRenderItem("box", "bricks0", XMMatrixTranslation(15.f, 0.f, 0.f), nullptr);
+	BuildRenderItem("grid", "bricks0", XMMatrixTranslation(0.f, -5.f, 10.f), nullptr, 0, 3.f);
+
+	std::vector<std::string> BaryonyxLODs = {"Baryonyx", "box"};
+	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(0.f, -5.f, 20.f), &BaryonyxLODs);
+	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(-30.f, -5.f, 40.f), &BaryonyxLODs);
+	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(30.f, -5.f, 0.f), &BaryonyxLODs);
 }
 
 void TexColumnsApp::BuildLightObjects()
@@ -1421,7 +1437,18 @@ void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const st
 		cmdList->SetGraphicsRootConstantBufferView(10, objCBAddress);
 		cmdList->SetGraphicsRootConstantBufferView(12, matCBAddress);
 
-		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+		if (ri->LODGeoNames.empty())
+			cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+		else if (ri->currentLOD < ri->LODGeoNames.size())
+		{
+			auto &item = ri->Geo->DrawArgs[ri->LODGeoNames.at(ri->currentLOD)];
+			cmdList->DrawIndexedInstanced(item.IndexCount, 1, item.StartIndexLocation, item.BaseVertexLocation, 0);
+		}
+		else
+		{
+			auto& item = ri->Geo->DrawArgs[ri->LODGeoNames.back()];
+			cmdList->DrawIndexedInstanced(item.IndexCount, 1, item.StartIndexLocation, item.BaseVertexLocation, 0);
+		}
 	}
 }
 
