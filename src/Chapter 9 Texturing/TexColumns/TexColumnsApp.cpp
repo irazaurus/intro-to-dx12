@@ -449,7 +449,6 @@ void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
 			ObjectConstants objConstants;
 			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
 			XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
-			objConstants.MaterialIndex = e->Mat->MatCBIndex;
 
 			currObjectCB->CopyData(e->ObjCBIndex, objConstants);
 
@@ -638,8 +637,7 @@ void TexColumnsApp::UpdateMaterialCBs(const GameTimer& gt)
 			matConstants.FresnelR0 = mat->FresnelR0;
 			matConstants.Roughness = mat->Roughness;
 			XMStoreFloat4x4(&matConstants.MatTransform, XMMatrixTranspose(matTransform));
-			matConstants.DiffuseMapIndex = mat->DiffuseSrvHeapIndex;
-			matConstants.NormalMapIndex = mat->NormalSrvHeapIndex;
+			matConstants.Metallic = mat->Metallic;
 
 			currMaterialCB->CopyData(mat->MatCBIndex, matConstants);
 
@@ -876,18 +874,15 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
-	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "VS", "vs_5_0");
-	mShaders["tessHS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "HS", "hs_5_0");
-	mShaders["tessDS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "DS", "ds_5_0");
-	mShaders["deferredPS"] = d3dUtil::CompileShader(L"Shaders\\Tessellation.hlsl", nullptr, "DeferredPS", "ps_5_0");
+	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "VS", "vs_5_0");
+	mShaders["tessHS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "HS", "hs_5_0");
+	mShaders["tessDS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "DS", "ds_5_0");
+	mShaders["deferredPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "DeferredPS", "ps_5_0");
 	
 	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["shadowGS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "GS", "gs_5_1");
 	mShaders["shadowOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "PS", "ps_5_1");
 	mShaders["shadowAlphaTestedPS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", alphaTestDefines, "PS", "ps_5_1");
-
-	mShaders["debugVS"] = d3dUtil::CompileShader(L"Shaders\\ShadowDebug.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["debugPS"] = d3dUtil::CompileShader(L"Shaders\\ShadowDebug.hlsl", nullptr, "PS", "ps_5_1");
 
 	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
@@ -1518,6 +1513,27 @@ void TexColumnsApp::DrawDeferredLights()
 		);
 		mCommandList->SetGraphicsRootDescriptorTable(i + 1, texHandle);
 	}
+
+	// sky diffuse
+	mCommandList->SetGraphicsRootDescriptorTable(6, CD3DX12_GPU_DESCRIPTOR_HANDLE(
+		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+		mSkyTexHeapIndex,
+		mCbvSrvDescriptorSize
+	));
+	// sky irradiance
+	mCommandList->SetGraphicsRootDescriptorTable(7, CD3DX12_GPU_DESCRIPTOR_HANDLE(
+		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+		mSkyTexHeapIndex + 1,
+		mCbvSrvDescriptorSize
+	));
+	// sky brdf
+	mCommandList->SetGraphicsRootDescriptorTable(8, CD3DX12_GPU_DESCRIPTOR_HANDLE(
+		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+		mTextures["skyBrdf"]->SrvHeapIndex,
+		mCbvSrvDescriptorSize
+	));
+
+
 
 	for (auto& Light : mAllLights)
 	{

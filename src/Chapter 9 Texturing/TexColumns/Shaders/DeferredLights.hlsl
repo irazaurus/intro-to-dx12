@@ -6,6 +6,9 @@ Texture2D gZW               : register(t2);
 Texture2D gNormal           : register(t3);
 Texture2D gMaterialAlbedo   : register(t4);
 Texture2D gMaterialFresnelRoughness : register(t5);
+TextureCube gSkyDiffuse             : register(t6);
+TextureCube gSkyIrradiance          : register(t7);
+Texture2D gSkyBrdf                  : register(t8);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
