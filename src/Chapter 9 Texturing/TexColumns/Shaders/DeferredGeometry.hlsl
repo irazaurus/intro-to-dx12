@@ -157,7 +157,7 @@ GBufferData DeferredPS(DomainOut pin)
 
     pout.diffuse = diffuseAlbedo;
     pout.zwzanashih_RGBA32F = float4(0.f, 0.f, 0.f, pin.PosH.z);
-    pout.normal = float4(normalMap, 0.f);
+    pout.normal = float4(normalMap, Metallic);
     pout.materialAlbedo = gDiffuseAlbedo;
     pout.MaterialFresnelRoughness = float4(gFresnelR0, gRoughness);
 

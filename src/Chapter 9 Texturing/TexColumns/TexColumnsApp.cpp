@@ -915,7 +915,7 @@ void TexColumnsApp::BuildShapeGeometry()
 	allMeshData.push_back( geoGen.LoadModel("..\\..\\Models\\trex.obj"));             // trex
 	allMeshData.push_back( geoGen.LoadModel("..\\..\\Models\\Baryonyx.obj"));         // baryonyx
 	allMeshData.push_back( geoGen.CreateCone(1.f, 3.f, 20, 20) );					  // cone for spot
-	allMeshData.push_back( geoGen.CreateSphere(1.f, 10, 10) );					      // sphere for point
+	allMeshData.push_back( geoGen.CreateSphere(1.f, 20, 20) );					      // sphere for point
 
 	// 
 	// We are concatenating all the geometry into one big vertex/index buffer.  So
@@ -1297,6 +1297,24 @@ void TexColumnsApp::BuildMaterials()
 	mMaterials["bricks0"] = std::move(bricks0);
 	mMaterials["gorg"] = std::move(gorg);
 	mMaterials["sky"] = std::move(sky);
+
+	int sphereCBI = 3;
+	for (int i = 0; i < 11; i++)
+	{
+		for (int j = 0; j < 11; j++)
+		{
+			auto sphere = std::make_unique<Material>();
+			sphere->Name = "sphere_" + std::to_string(i) + "_" + std::to_string(j);
+			sphere->MatCBIndex = sphereCBI++;
+			sphere->DiffuseSrvHeapIndex = mTextures["diffuse"]->SrvHeapIndex;
+			sphere->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+			sphere->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+			sphere->Roughness = j / 10.f;
+			sphere->Metallic = i / 10.f;
+
+			mMaterials[sphere->Name] = std::move(sphere);
+		}
+	}
 }
 
 void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMATRIX translate, std::vector<std::string>* LODGeoNames, int layer, float scale, float scaleTex)
@@ -1336,6 +1354,16 @@ void TexColumnsApp::BuildRenderItems()
 	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(0.f, -5.f, 20.f), &BaryonyxLODs);
 	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(-30.f, -5.f, 40.f), &BaryonyxLODs);
 	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(30.f, -5.f, 0.f), &BaryonyxLODs);
+
+	float spacing = 7.f;
+	for (int i = 0; i < 11; i++)
+	{
+		for (int j = 0; j < 11; j++)
+		{
+			BuildRenderItem("sphere", "sphere_" + std::to_string(i) + "_" + std::to_string(j),
+				XMMatrixTranslation(i * spacing - 80.f, 0.f, j * spacing - 80.f), nullptr, 0, 3);
+		}
+	}
 }
 
 void TexColumnsApp::BuildLightObjects()
@@ -1517,13 +1545,13 @@ void TexColumnsApp::DrawDeferredLights()
 	// sky diffuse
 	mCommandList->SetGraphicsRootDescriptorTable(6, CD3DX12_GPU_DESCRIPTOR_HANDLE(
 		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
-		mSkyTexHeapIndex,
+		mTextures["skyDiffuseCube"]->SrvHeapIndex,
 		mCbvSrvDescriptorSize
 	));
 	// sky irradiance
 	mCommandList->SetGraphicsRootDescriptorTable(7, CD3DX12_GPU_DESCRIPTOR_HANDLE(
 		mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
-		mSkyTexHeapIndex + 1,
+		mTextures["skyIrradianceCube"]->SrvHeapIndex,
 		mCbvSrvDescriptorSize
 	));
 	// sky brdf

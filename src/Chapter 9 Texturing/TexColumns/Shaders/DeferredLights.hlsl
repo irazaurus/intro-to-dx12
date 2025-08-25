@@ -1,5 +1,7 @@
 #include "LightingUtil.hlsl"
 
+#define PI 3.14159265359
+
 Texture2DArray gShadowMap   : register(t0);
 Texture2D gDiffuse          : register(t1);
 Texture2D gZW               : register(t2);
@@ -46,6 +48,51 @@ cbuffer LightConstants : register(b1)
     float4x4 LViewProj[6];
     float4x4 LShadowTransform[6];
 };
+
+float DistributionGGX(float3 N, float3 H, float roughness)
+{
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+
+    float num = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+
+    return num / denom;
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness)
+{
+    float r = (roughness + 1.0);
+    float k = (r * r) / 8.0;
+
+    float num = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
+
+    return num / denom;
+}
+
+float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    float ggx1 = GeometrySchlickGGX(NdotL, roughness);
+
+    return ggx1 * ggx2;
+}
+
+float3 FresnelSchlick(float cosTheta, float3 F0)
+{
+    return F0 + (1.0 - F0) * pow(saturate(1.0 - cosTheta), 5.0);
+}
+
+float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness)
+{
+    return F0 + (max(1.0 - roughness, F0) - F0) * pow(saturate(1.0 - cosTheta), 5.0);
+}
 
 float3 RestoreWorldPosition(float2 UV, float depth)
 {
@@ -138,15 +185,20 @@ float4 PS(VertexOut vo) : SV_Target
     uint2 pixelC = vo.PosH.xy;
     float4 diffuseAlbedo = gDiffuse.Load(int3(pixelC, 0));
     float4 zw = gZW.Load(int3(pixelC, 0));
-    float4 normal = gNormal.Load(int3(pixelC, 0));
+    float4 normalChannel = gNormal.Load(int3(pixelC, 0));
+    float3 normal = normalChannel.rgb;
+    float metallic = normalChannel.a;
     float4 matAlbedo = gMaterialAlbedo.Load(int3(pixelC, 0));
     float4 matFrR = gMaterialFresnelRoughness.Load(int3(pixelC, 0));
+    diffuseAlbedo = diffuseAlbedo * matAlbedo;
+    float roughness = matFrR.a;
     
     // Vector from point being lit to eye. 
     float3 posW = RestoreWorldPosition(uv, zw.a);
     float3 toEyeW = gEyePosW - posW;
     float distToEye = length(toEyeW);
     toEyeW /= distToEye; // normalize
+    float NdotV = max(dot(normal, toEyeW), 0.0);
 
     const float shininess = 1.0f - matFrR.a;
     Material mat = { diffuseAlbedo, matFrR.rgb, shininess };
@@ -156,16 +208,41 @@ float4 PS(VertexOut vo) : SV_Target
     
     if (LightType == 0) // direction
         {
-            for (uint cascade = 0; cascade < 4; cascade++)
+        for (uint cascade = 0; cascade < 4; cascade++)
+        {
+            float factor = CalcShadowFactor(float4(posW, 1.0f), cascade);
+            if (factor < 0.3f)
             {
-                float factor = CalcShadowFactor(float4(posW, 1.0f), cascade);
-                if (factor < 0.3f)
-                {
-                    shadowFactor = factor;
-                    break;
-                }
+                shadowFactor = factor;
+                break;
             }
-            currentLight = float4(ComputeDirectionalLight(light, mat, normal.rgb, toEyeW) * shadowFactor, 1.0f);
+        }
+        
+        float3 lightDir = normalize(-light.Direction);
+        float3 halfVec = normalize(toEyeW + lightDir);
+        float NdotL = max(dot(normal, lightDir), 0.0);
+
+        float3 F0 = lerp(0.04.xxx, diffuseAlbedo.rgb, metallic);
+        float3 F = FresnelSchlick(max(dot(halfVec, toEyeW), 0.0), F0);
+
+        float NDF = DistributionGGX(normal, halfVec, roughness);
+
+        float G = GeometrySmith(normal, toEyeW, lightDir, roughness);
+
+        // Cook-Torrance BRDF
+        float3 numerator = NDF * G * F;
+        float denominator = 4.0 * NdotV * NdotL + 0.001;
+        float3 specular = numerator / denominator;
+
+        float3 kS = F;
+        float3 kD = 1.0 - kS;
+        kD *= (1.0 - metallic);
+
+        float3 radiance = light.Strength * LColor;
+
+        float3 Lo = (kD * diffuseAlbedo.rgb / PI + specular) * radiance * NdotL;
+        
+        currentLight = float4(shadowFactor * Lo, 1.0f);
     } 
     else if (LightType == 1) // point
         {
@@ -184,12 +261,12 @@ float4 PS(VertexOut vo) : SV_Target
                 faceIndex = (lightToPixel.z > 0) ? 4 : 5;
             
             shadowFactor = CalcShadowFactor(float4(posW, 1.0f), faceIndex);
-            currentLight = float4(ComputePointLight(light, mat, posW, normal.rgb, toEyeW) * shadowFactor, 1.0f);
+            currentLight = float4(ComputePointLight(light, mat, posW, normal, toEyeW) * shadowFactor, 1.0f);
     } 
     else // spot
         {
             shadowFactor = CalcShadowFactor(float4(posW, 1.0f), 0);
-            currentLight = float4(ComputeSpotLight(light, mat, posW, normal.rgb, toEyeW) * shadowFactor, 1.0f);
+            currentLight = float4(ComputeSpotLight(light, mat, posW, normal, toEyeW) * shadowFactor, 1.0f);
         }
     
     currentLight = currentLight * float4(LColor, 1.f);
@@ -199,8 +276,47 @@ float4 PS(VertexOut vo) : SV_Target
 
 float4 AmbientPS(VertexOut vo) : SV_Target
 {
+    float2 uv = vo.PosH.xy / gRenderTargetSize;
     uint2 pixelC = vo.PosH.xy;
-    float4 diffuse = gDiffuse.Load(int3(pixelC, 0));
+    float4 diffuseAlbedo = gDiffuse.Load(int3(pixelC, 0));
+    float4 zw = gZW.Load(int3(pixelC, 0));
+    float4 normalChannel = gNormal.Load(int3(pixelC, 0));
+    float4 matAlbedo = gMaterialAlbedo.Load(int3(pixelC, 0));
+    float4 matFrR = gMaterialFresnelRoughness.Load(int3(pixelC, 0));
+    float metallic = normalChannel.a;
+    float roughness = matFrR.a;
     
-    return diffuse * gAmbientLight;
+    float3 albedo = diffuseAlbedo.rgb;
+    float3 normal = normalize(normalChannel.rgb);
+    
+    if (length(normal) < 0.01f)
+        discard;
+    
+    float3 worldPos = RestoreWorldPosition(uv, zw.w);
+    float3 viewDir = normalize(gEyePosW - worldPos);
+    float NdotV = max(dot(normal, viewDir), 0.0);
+    
+    // --- PBR IBL ---
+    float3 F0 = lerp(0.04.xxx, albedo, metallic);
+    float3 F = FresnelSchlickRoughness(NdotV, F0, roughness);
+    
+    float3 kS = F;
+    float3 kD = 1.0 - kS;
+    kD *= (1.0 - metallic);
+    
+    float3 irradiance = gSkyIrradiance.Sample(gsamLinearClamp, normal).rgb;
+    float3 diffuse = irradiance * albedo;
+    
+    uint width, height, NumMips;
+    gSkyDiffuse.GetDimensions(0, width, height, NumMips);
+    
+    float3 R = reflect(-viewDir, normal);
+    float3 prefilteredColor = gSkyDiffuse.SampleLevel(gsamLinearClamp, R, roughness * NumMips).rgb;
+    float2 brdf = gSkyBrdf.Sample(gsamLinearClamp, float2(NdotV, roughness)).rg;
+    float3 specular = prefilteredColor * (F * brdf.x + brdf.y);
+    
+    float ao = 1.0f;
+    float3 ambient = (kD * diffuse + specular) * ao * 0.1f.xxx;
+    
+    return float4(ambient, diffuseAlbedo.a);
 }
