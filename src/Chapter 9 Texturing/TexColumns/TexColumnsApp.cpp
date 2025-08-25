@@ -131,6 +131,7 @@ private:
 	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 	void DrawDeferredGeometry();
 	void DrawDeferredLights();
+	void DrawSkyBox();
 	void DrawPostProcess();
 	void DrawShadowMaps();
 
@@ -349,6 +350,7 @@ void TexColumnsApp::Draw(const GameTimer& gt)
 
 	mGBuffer->TransitToLightsRenderingState(mCommandList);
 	DrawDeferredLights();
+	DrawSkyBox();
 
 	mGBuffer->TransitToTonemappingState(mCommandList);
 	DrawPostProcess();
@@ -718,8 +720,10 @@ void TexColumnsApp::LoadTextures()
 	// Baronyx
 	LoadTexture("baryonyx_diffuse", L"../../Textures/baryonyx_diffuse.dds");
 
-	// Last texture - sky map
-	LoadTexture("skyCubeMap", L"../../Textures/desertcube1024.dds");
+	// Last textures for sky
+	LoadTexture("skyBrdf", L"../../Textures/skyBrdf.dds");
+	LoadTexture("skyDiffuseCube", L"../../Textures/skyDiffuseCube.dds");			// cube map
+	LoadTexture("skyIrradianceCube", L"../../Textures/skyIrradianceCube.dds");  // cube map
 }
 
 void TexColumnsApp::BuildRootSignature()
@@ -802,7 +806,7 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	// texture descriptors except last
 	for (auto &Tex : mTextures)
 	{
-		if (Tex.first == "skyCubeMap" || Tex.first == "black") continue;
+		if (Tex.first == "skyDiffuseCube" || Tex.first == "black" || Tex.first == "skyIrradianceCube") continue;
 
 		Tex.second->SrvHeapIndex = i++;
 		auto& tex = Tex.second->Resource;
@@ -812,9 +816,9 @@ void TexColumnsApp::BuildDescriptorHeaps()
 		hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 	}
 
-	// last texture = sky box
-	auto& skyCubeMap = mTextures["skyCubeMap"]->Resource;
-	mTextures["skyCubeMap"]->SrvHeapIndex = i;
+	// 2 last textures = cube maps
+	auto& skyCubeMap = mTextures["skyDiffuseCube"]->Resource;
+	mTextures["skyDiffuseCube"]->SrvHeapIndex = i++;
 
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
 	srvDesc.TextureCube.MostDetailedMip = 0;
@@ -822,8 +826,14 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
 
 	srvDesc.Format = skyCubeMap->GetDesc().Format;
-	srvDesc.Texture2D.MipLevels = skyCubeMap->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(skyCubeMap.Get(), &srvDesc, hDescriptor);
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	auto& skyIrradianceCube = mTextures["skyIrradianceCube"]->Resource;
+	mTextures["skyIrradianceCube"]->SrvHeapIndex = i;
+	srvDesc.Format = skyIrradianceCube->GetDesc().Format;
+	srvDesc.TextureCube.MipLevels = skyIrradianceCube->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(skyIrradianceCube.Get(), &srvDesc, hDescriptor);
 
 	mSkyTexHeapIndex = (UINT)mTextures.size() - 1;
 
@@ -1284,7 +1294,7 @@ void TexColumnsApp::BuildMaterials()
 	auto sky = std::make_unique<Material>();
 	sky->Name = "sky";
 	sky->MatCBIndex = 2;
-	sky->DiffuseSrvHeapIndex = mTextures["skyCubeMap"]->SrvHeapIndex;
+	sky->DiffuseSrvHeapIndex = mTextures["skyDiffuseCube"]->SrvHeapIndex;
 	sky->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	sky->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
 	sky->Roughness = 1.0f;
@@ -1537,6 +1547,15 @@ void TexColumnsApp::DrawDeferredLights()
 
 	mCommandList->SetPipelineState(mPSOs["deferredAmbient"].Get());
 	mCommandList->DrawInstanced(6, 1, 0, 0); // todo 3?
+}
+
+void TexColumnsApp::DrawSkyBox()
+{
+	mCommandList->SetPipelineState(mPSOs["sky"].Get());
+	auto passCB = mCurrFrameResource->PassCB->Resource();
+	mCommandList->SetGraphicsRootConstantBufferView(11, passCB->GetGPUVirtualAddress());
+
+	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
 }
 
 void TexColumnsApp::DrawPostProcess()
