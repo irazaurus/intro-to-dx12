@@ -24,8 +24,6 @@ struct HullOut
 struct DomainOut
 {
     float3 Tangent : TANGENT;
-    float3 PosL : POSITION;
-    float3 PosW : POSITION1;
     float4 PosH : SV_POSITION;
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
@@ -48,6 +46,7 @@ struct GBufferData
 
 Vertex VS(Vertex vin)
 {
+    vin.TexC = mul(float4(vin.TexC, 0.f, 1.f), gTexTransform).xy;
     return vin;
 }
 
@@ -120,10 +119,8 @@ DomainOut DS(PatchTess patchTess,
     if (abs(disp) < 1e-5f)
         disp = 1.0f;
     p.y += disp * 1.0f;
-
-    dout.PosL = p;
+    
     float4 posW = mul(float4(p, 1.0f), gWorld);
-    dout.PosW = posW;
     dout.PosH = mul(posW, gViewProj);
     dout.NormalW = norm;
     dout.Tangent = tri[0].Tangent;

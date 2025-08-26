@@ -684,7 +684,6 @@ void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	mMainPassCB.FarZ = 1000.0f;
 	mMainPassCB.TotalTime = gt.TotalTime();
 	mMainPassCB.DeltaTime = gt.DeltaTime();
-	mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
 
 	auto currPassCB = mCurrFrameResource->PassCB.get();
 	currPassCB->CopyData(0, mMainPassCB);
@@ -708,12 +707,16 @@ void TexColumnsApp::LoadTextures()
 	LoadTexture("diffuse", L"../../Textures/white1x1.dds");
 
 	// Bricks
-	LoadTexture("bricks_diffuse", L"../../Textures/tile.dds");
+	LoadTexture("bricks_diffuse", L"../../Textures/grass.dds");
 	LoadTexture("bricks_norm", L"../../Textures/tile_nmap.dds");
 	LoadTexture("bricks_disp", L"../../Textures/checkboard.dds");
 
 	// Baronyx
 	LoadTexture("baryonyx_diffuse", L"../../Textures/baryonyx_diffuse.dds");
+
+	// trex
+	LoadTexture("trex_diffuse", L"../../Textures/trex_diffuse.dds");
+	LoadTexture("trex_nmap", L"../../Textures/trex_nmap.dds");
 
 	// Last textures for sky
 	LoadTexture("skyBrdf", L"../../Textures/skyBrdf.dds");
@@ -1241,12 +1244,14 @@ void TexColumnsApp::BuildFrameResources()
 
 void TexColumnsApp::BuildMaterials()
 {
+	int matCBI = 0;
+
 	auto bricks0 = std::make_unique<Material>();
 	bricks0->Name = "bricks0";
-	bricks0->MatCBIndex = 0;
+	bricks0->MatCBIndex = matCBI++;
 	bricks0->DiffuseSrvHeapIndex = mTextures["bricks_diffuse"]->SrvHeapIndex;
-	bricks0->NormalSrvHeapIndex = mTextures["bricks_norm"]->SrvHeapIndex;
-	bricks0->DisplaceSrvHeapIndex = mTextures["bricks_disp"]->SrvHeapIndex;
+	//bricks0->NormalSrvHeapIndex = mTextures["bricks_norm"]->SrvHeapIndex;
+	//bricks0->DisplaceSrvHeapIndex = mTextures["bricks_disp"]->SrvHeapIndex;
 	bricks0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	bricks0->Roughness = 0.1f;
@@ -1255,7 +1260,7 @@ void TexColumnsApp::BuildMaterials()
 
 	auto gorg = std::make_unique<Material>();
 	gorg->Name = "gorg";
-	gorg->MatCBIndex = 1;
+	gorg->MatCBIndex = matCBI++;
 	gorg->DiffuseSrvHeapIndex = mTextures["baryonyx_diffuse"]->SrvHeapIndex;
 	gorg->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	gorg->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
@@ -1263,9 +1268,20 @@ void TexColumnsApp::BuildMaterials()
 
 	mMaterials[gorg->Name] = std::move(gorg);
 
+	auto trex = std::make_unique<Material>();
+	trex->Name = "trex";
+	trex->MatCBIndex = matCBI++;
+	trex->DiffuseSrvHeapIndex = mTextures["trex_diffuse"]->SrvHeapIndex;
+	trex->NormalSrvHeapIndex = mTextures["trex_nmap"]->SrvHeapIndex;
+	trex->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	trex->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+	trex->Roughness = 1.0f;
+
+	mMaterials[trex->Name] = std::move(trex);
+
 	auto sky = std::make_unique<Material>();
 	sky->Name = "sky";
-	sky->MatCBIndex = 2;
+	sky->MatCBIndex = matCBI++;
 	sky->DiffuseSrvHeapIndex = mTextures["skyDiffuseCube"]->SrvHeapIndex;
 	sky->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	sky->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
@@ -1273,14 +1289,13 @@ void TexColumnsApp::BuildMaterials()
 
 	mMaterials[sky->Name] = std::move(sky);
 
-	int sphereCBI = 3;
 	for (int i = 0; i < 11; i++)
 	{
 		for (int j = 0; j < 11; j++)
 		{
 			auto sphere = std::make_unique<Material>();
 			sphere->Name = "sphere_" + std::to_string(i) + "_" + std::to_string(j);
-			sphere->MatCBIndex = sphereCBI++;
+			sphere->MatCBIndex = matCBI++;
 			sphere->DiffuseSrvHeapIndex = mTextures["diffuse"]->SrvHeapIndex;
 			sphere->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 			sphere->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
@@ -1319,11 +1334,12 @@ void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMA
 
 void TexColumnsApp::BuildRenderItems()
 {
-	BuildRenderItem("sphere", "sky", XMMatrixIdentity(), nullptr, (int) RenderLayer::Sky, 5000.0f);
+	BuildRenderItem("box", "sky", XMMatrixIdentity(), nullptr, (int) RenderLayer::Sky, 5000.0f);
 	BuildRenderItem("quad", "bricks0", XMMatrixIdentity(), nullptr, (int)RenderLayer::Debug);
 
 	BuildRenderItem("box", "bricks0", XMMatrixTranslation(15.f, 0.f, 0.f), nullptr);
-	BuildRenderItem("grid", "bricks0", XMMatrixTranslation(0.f, -5.f, 10.f), nullptr, 0, 3.f);
+	BuildRenderItem("box", "bricks0", XMMatrixScaling(50.f, 0.1f, 50.f) * XMMatrixTranslation(0.f, -5.f, 10.f), nullptr, 0, 1.f, 300.f);
+	BuildRenderItem("trex", "trex", XMMatrixTranslation(40.f, -5.f, -60.f), nullptr, 0, 2.f);
 
 	std::vector<std::string> BaryonyxLODs = {"Baryonyx", "box"};
 	BuildRenderItem("Baryonyx", "gorg", XMMatrixTranslation(0.f, -5.f, 20.f), &BaryonyxLODs);
@@ -1345,6 +1361,7 @@ void TexColumnsApp::BuildLightObjects()
 {
 	auto dir1 = std::make_unique<LightObject>();
 	dir1->LightType = LightType::Directional;
+	dir1->Strength = { 1.f, 1.f, 1.f };
 	dir1->Direction = { 0.57735f, -0.57735f, 0.57735f };
 	mAllLights.push_back(std::move(dir1));
 	

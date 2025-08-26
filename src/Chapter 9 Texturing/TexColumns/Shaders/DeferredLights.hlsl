@@ -36,7 +36,6 @@ cbuffer cbPass : register(b0)
     float gFarZ;
     float gTotalTime;
     float gDeltaTime;
-    float4 gAmbientLight;
 };
 
 cbuffer LightConstants : register(b1)
@@ -316,7 +315,7 @@ float4 AmbientPS(VertexOut vo) : SV_Target
     float3 specular = prefilteredColor * (F * brdf.x + brdf.y);
     
     float ao = 1.0f;
-    float3 ambient = (kD * diffuse + specular) * ao * 0.1f.xxx;
+    float3 ambient = (kD * diffuse + specular) * ao * 0.2f.xxx;
     
     return float4(ambient, diffuseAlbedo.a);
 }

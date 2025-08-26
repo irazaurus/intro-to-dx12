@@ -30,7 +30,6 @@ cbuffer cbPass : register(b1)
     float gFarZ;
     float gTotalTime;
     float gDeltaTime;
-    float4 gAmbientLight;
 };
 
 cbuffer cbMaterial : register(b2)
