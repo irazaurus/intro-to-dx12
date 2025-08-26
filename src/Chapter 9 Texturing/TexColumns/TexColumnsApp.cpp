@@ -116,7 +116,7 @@ private:
 	void UpdateMainPassCB(const GameTimer& gt);
 	void UpdatePostProcessCB(const GameTimer& gt);
 
-	void LoadTexture(std::string name, std::wstring filename);
+	void LoadTexture(std::string name, std::wstring filename, TextureType type = TextureType::TEXTURE2D);
 	void LoadTextures();
 	void BuildRootSignature();
 	void BuildDescriptorHeaps();
@@ -171,11 +171,7 @@ private:
 	Camera mCamera;
 	POINT mLastMousePos;
 
-	UINT mSkyTexHeapIndex = 0;
 	UINT mShadowMapHeapIndex = 0;
-	UINT mNullCubeSrvIndex = 0;
-	UINT mNullTexSrvIndex = 0;
-	CD3DX12_GPU_DESCRIPTOR_HANDLE mNullSrv;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
@@ -694,10 +690,11 @@ void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	currPassCB->CopyData(0, mMainPassCB);
 }
 
-void TexColumnsApp::LoadTexture(std::string name, std::wstring filename)
+void TexColumnsApp::LoadTexture(std::string name, std::wstring filename, TextureType type)
 {
 	auto tex = std::make_unique<Texture>();
 	tex->Filename = filename;
+	tex->Type = type;
 	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
 		mCommandList.Get(), tex->Filename.c_str(),
 		tex->Resource, tex->UploadHeap));
@@ -707,7 +704,7 @@ void TexColumnsApp::LoadTexture(std::string name, std::wstring filename)
 void TexColumnsApp::LoadTextures()
 {
 	// Defaults
-	LoadTexture("black", L"../../Textures/black.dds");
+	LoadTexture("black", L"../../Textures/black.dds");			 // always in 0 slot
 	LoadTexture("diffuse", L"../../Textures/white1x1.dds");
 
 	// Bricks
@@ -720,8 +717,8 @@ void TexColumnsApp::LoadTextures()
 
 	// Last textures for sky
 	LoadTexture("skyBrdf", L"../../Textures/skyBrdf.dds");
-	LoadTexture("skyDiffuseCube", L"../../Textures/skyDiffuseCube.dds");			// cube map
-	LoadTexture("skyIrradianceCube", L"../../Textures/skyIrradianceCube.dds");  // cube map
+	LoadTexture("skyDiffuseCube", L"../../Textures/skyDiffuseCube.dds", TextureType::CUBEMAP);
+	LoadTexture("skyIrradianceCube", L"../../Textures/skyIrradianceCube.dds", TextureType::CUBEMAP);
 }
 
 void TexColumnsApp::BuildRootSignature()
@@ -801,43 +798,37 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	md3dDevice->CreateShaderResourceView(tex.Get(), &srvDesc, hDescriptor);
 	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
-	// texture descriptors except last
+	// texture descriptors except default "black"
 	for (auto &Tex : mTextures)
 	{
-		if (Tex.first == "skyDiffuseCube" || Tex.first == "black" || Tex.first == "skyIrradianceCube") continue;
+		if (Tex.first == "black") continue;
 
 		Tex.second->SrvHeapIndex = i++;
 		auto& tex = Tex.second->Resource;
 		srvDesc.Format = tex->GetDesc().Format;
-		srvDesc.Texture2D.MipLevels = tex->GetDesc().MipLevels;
+
+		switch (Tex.second->Type)
+		{
+		case TextureType::TEXTURE2D:
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+			srvDesc.Texture2D.MostDetailedMip = 0;
+			srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+			srvDesc.Texture2D.MipLevels = tex->GetDesc().MipLevels;
+			break;
+			
+		case TextureType::CUBEMAP:
+			srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+			srvDesc.TextureCube.MostDetailedMip = 0;
+			srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
+			srvDesc.TextureCube.MipLevels = tex->GetDesc().MipLevels;
+			break;
+		}
+
 		md3dDevice->CreateShaderResourceView(tex.Get(), &srvDesc, hDescriptor);
 		hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 	}
 
-	// 2 last textures = cube maps
-	auto& skyCubeMap = mTextures["skyDiffuseCube"]->Resource;
-	mTextures["skyDiffuseCube"]->SrvHeapIndex = i++;
-
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
-	srvDesc.TextureCube.MostDetailedMip = 0;
-	srvDesc.TextureCube.MipLevels = skyCubeMap->GetDesc().MipLevels;
-	srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
-
-	srvDesc.Format = skyCubeMap->GetDesc().Format;
-	md3dDevice->CreateShaderResourceView(skyCubeMap.Get(), &srvDesc, hDescriptor);
-	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-
-	auto& skyIrradianceCube = mTextures["skyIrradianceCube"]->Resource;
-	mTextures["skyIrradianceCube"]->SrvHeapIndex = i;
-	srvDesc.Format = skyIrradianceCube->GetDesc().Format;
-	srvDesc.TextureCube.MipLevels = skyIrradianceCube->GetDesc().MipLevels;
-	md3dDevice->CreateShaderResourceView(skyIrradianceCube.Get(), &srvDesc, hDescriptor);
-
-	mSkyTexHeapIndex = (UINT)mTextures.size() - 1;
-
-	mNullCubeSrvIndex = mSkyTexHeapIndex + 1;
-	mNullTexSrvIndex = mNullCubeSrvIndex + 1;
-	mGBuffer->Channel0SRVHeapIndex = mNullTexSrvIndex + 1;
+	mGBuffer->Channel0SRVHeapIndex = (UINT)mTextures.size();
 	mShadowMapHeapIndex = mGBuffer->Channel0SRVHeapIndex + mGBuffer->NumBuffers + 1;
 
 	// copy gbuffer resources into the srv heap
@@ -846,24 +837,6 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	md3dDevice->CopyDescriptorsSimple(mGBuffer->NumBuffers, srvGBuffer,
 		mGBuffer->m_SRVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
 		D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-	auto srvCpuStart = mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	auto srvGpuStart = mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
-	auto dsvCpuStart = mDsvHeap->GetCPUDescriptorHandleForHeapStart();
-
-	// null srv
-	auto nullSrv = CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, mNullCubeSrvIndex, mCbvSrvUavDescriptorSize);
-	mNullSrv = CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, mNullCubeSrvIndex, mCbvSrvUavDescriptorSize);
-
-	md3dDevice->CreateShaderResourceView(nullptr, &srvDesc, nullSrv);
-	nullSrv.Offset(1, mCbvSrvUavDescriptorSize);
-
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	srvDesc.Texture2D.MostDetailedMip = 0;
-	srvDesc.Texture2D.MipLevels = 1;
-	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-	md3dDevice->CreateShaderResourceView(nullptr, &srvDesc, nullSrv);
 }
 
 void TexColumnsApp::BuildShadersAndInputLayout()
@@ -1278,6 +1251,8 @@ void TexColumnsApp::BuildMaterials()
 	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	bricks0->Roughness = 0.1f;
 
+	mMaterials[bricks0->Name] = std::move(bricks0);
+
 	auto gorg = std::make_unique<Material>();
 	gorg->Name = "gorg";
 	gorg->MatCBIndex = 1;
@@ -1285,6 +1260,8 @@ void TexColumnsApp::BuildMaterials()
 	gorg->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	gorg->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
 	gorg->Roughness = 0.3f;
+
+	mMaterials[gorg->Name] = std::move(gorg);
 
 	auto sky = std::make_unique<Material>();
 	sky->Name = "sky";
@@ -1294,9 +1271,7 @@ void TexColumnsApp::BuildMaterials()
 	sky->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
 	sky->Roughness = 1.0f;
 
-	mMaterials["bricks0"] = std::move(bricks0);
-	mMaterials["gorg"] = std::move(gorg);
-	mMaterials["sky"] = std::move(sky);
+	mMaterials[sky->Name] = std::move(sky);
 
 	int sphereCBI = 3;
 	for (int i = 0; i < 11; i++)

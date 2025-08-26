@@ -248,10 +248,17 @@ struct Material
 	float Metallic = 0.f;
 };
 
+enum TextureType
+{
+	TEXTURE2D,
+	CUBEMAP
+};
+
 struct Texture
 {
 	// Unique material name for lookup.
 	std::string Name;
+	TextureType Type;
 
 	std::wstring Filename;
 	UINT SrvHeapIndex = 0;
