@@ -73,6 +73,14 @@ float GeometrySchlickGGX(float NdotV, float roughness)
     return num / denom;
 }
 
+float GeometryImplicit(float3 N, float3 V, float3 L, float roughness)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+
+    return NdotL * NdotV;
+}
+
 float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
 {
     float NdotV = max(dot(N, V), 0.0);
@@ -227,6 +235,9 @@ float4 PS(VertexOut vo) : SV_Target
         float NDF = DistributionGGX(normal, halfVec, roughness);
 
         float G = GeometrySmith(normal, toEyeW, lightDir, roughness);
+#ifdef IMPLICIT_PBR
+        G = GeometryImplicit(normal, toEyeW, lightDir, roughness);
+#endif
 
         // Cook-Torrance BRDF
         float3 numerator = NDF * G * F;

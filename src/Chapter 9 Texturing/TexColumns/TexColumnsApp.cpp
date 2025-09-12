@@ -172,6 +172,8 @@ private:
 	POINT mLastMousePos;
 
 	UINT mShadowMapHeapIndex = 0;
+	bool gImplicit = false;
+	float timeToImplicit = 0.f;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
@@ -423,6 +425,14 @@ void TexColumnsApp::OnKeyboardInput(const GameTimer& gt)
 		mCamera.Strafe(30.0f * dt);
 
 	mCamera.UpdateViewMatrix();
+
+	timeToImplicit += dt;
+
+	if ((GetAsyncKeyState('P') & 0x8000) && timeToImplicit > 0.3f)
+	{
+		gImplicit = !gImplicit;
+		timeToImplicit = 0.f;
+	}
 }
 
 void TexColumnsApp::AnimateMaterials(const GameTimer& gt)
@@ -850,6 +860,12 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
+	const D3D_SHADER_MACRO PBRDefines[] =
+	{
+		"IMPLICIT_PBR", "1",
+		NULL, NULL
+	};
+
 	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "VS", "vs_5_0");
 	mShaders["tessHS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "HS", "hs_5_0");
 	mShaders["tessDS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "DS", "ds_5_0");
@@ -865,6 +881,7 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 
 	mShaders["deferredLightsVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["deferredLightsPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["deferredLightsPS_Implicit"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", PBRDefines, "PS", "ps_5_1");
 	mShaders["deferredLightsGeometryVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "LightsGeometryVS", "vs_5_1");
 	mShaders["deferredAmbientPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredLights.hlsl", nullptr, "AmbientPS", "ps_5_1");
 	
@@ -1167,6 +1184,13 @@ void TexColumnsApp::BuildPSOs()
 	deferredPsoDesc.DSVFormat = mDepthStencilFormat;
 
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLights"])));
+
+	deferredPsoDesc.PS =
+	{
+	 reinterpret_cast<BYTE*>(mShaders["deferredLightsPS_Implicit"]->GetBufferPointer()),
+	 mShaders["deferredLightsPS_Implicit"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLights_Implicit"])));
 
 	//
 	// PSO for ambient
@@ -1565,7 +1589,7 @@ void TexColumnsApp::DrawDeferredLights()
 
 		if (Light->LightType == LightType::Directional)
 		{
-			mCommandList->SetPipelineState(mPSOs["deferredLights"].Get());
+			mCommandList->SetPipelineState(mPSOs[ gImplicit ? "deferredLights_Implicit" : "deferredLights"].Get());
 			mCommandList->DrawInstanced(6, 1, 0, 0);
 		}
 		else
