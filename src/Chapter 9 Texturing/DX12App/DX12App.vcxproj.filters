@@ -36,7 +36,7 @@
     <ClCompile Include="FrameResource.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="TexColumnsApp.cpp">
+    <ClCompile Include="DX12App.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Common\Camera.cpp">

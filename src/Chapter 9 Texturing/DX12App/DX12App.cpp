@@ -1,7 +1,3 @@
-//***************************************************************************************
-// TexColumnsApp.cpp by Frank Luna (C) 2015 All Rights Reserved.
-//***************************************************************************************
-
 #define NOMINMAX
 
 #include "../../Common/d3dApp.h"
@@ -88,13 +84,13 @@ struct LightObject
 	ShadowMap* shadowMap;
 };
 
-class TexColumnsApp : public D3DApp
+class DX12App : public D3DApp
 {
 public:
-	TexColumnsApp(HINSTANCE hInstance);
-	TexColumnsApp(const TexColumnsApp& rhs) = delete;
-	TexColumnsApp& operator=(const TexColumnsApp& rhs) = delete;
-	~TexColumnsApp();
+	DX12App(HINSTANCE hInstance);
+	DX12App(const DX12App& rhs) = delete;
+	DX12App& operator=(const DX12App& rhs) = delete;
+	~DX12App();
 
 	virtual bool Initialize()override;
 
@@ -184,7 +180,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
 	try
 	{
-		TexColumnsApp theApp(hInstance);
+		DX12App theApp(hInstance);
 		if (!theApp.Initialize())
 			return 0;
 
@@ -197,18 +193,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	}
 }
 
-TexColumnsApp::TexColumnsApp(HINSTANCE hInstance)
+DX12App::DX12App(HINSTANCE hInstance)
 	: D3DApp(hInstance)
 {
 }
 
-TexColumnsApp::~TexColumnsApp()
+DX12App::~DX12App()
 {
 	if (md3dDevice != nullptr)
 		FlushCommandQueue();
 }
 
-bool TexColumnsApp::Initialize()
+bool DX12App::Initialize()
 {
 	if (!D3DApp::Initialize())
 		return false;
@@ -246,7 +242,7 @@ bool TexColumnsApp::Initialize()
 	return true;
 }
 
-void TexColumnsApp::CreateRtvAndDsvDescriptorHeaps()
+void DX12App::CreateRtvAndDsvDescriptorHeaps()
 {
 	// Add +6 RTV for cube render target.
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
@@ -267,7 +263,7 @@ void TexColumnsApp::CreateRtvAndDsvDescriptorHeaps()
 		&dsvHeapDesc, IID_PPV_ARGS(mDsvHeap.GetAddressOf())));
 }
 
-void TexColumnsApp::OnResize()
+void DX12App::OnResize()
 {
 	D3DApp::OnResize();
 
@@ -286,7 +282,7 @@ void TexColumnsApp::OnResize()
 	}
 }
 
-void TexColumnsApp::Update(const GameTimer& gt)
+void DX12App::Update(const GameTimer& gt)
 {
 	OnKeyboardInput(gt);
 
@@ -312,7 +308,7 @@ void TexColumnsApp::Update(const GameTimer& gt)
 	UpdatePostProcessCB(gt);
 }
 
-void TexColumnsApp::Draw(const GameTimer& gt)
+void DX12App::Draw(const GameTimer& gt)
 {
 	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
 	auto passCB = mCurrFrameResource->PassCB->Resource();
@@ -377,7 +373,7 @@ void TexColumnsApp::Draw(const GameTimer& gt)
 	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
 }
 
-void TexColumnsApp::OnMouseDown(WPARAM btnState, int x, int y)
+void DX12App::OnMouseDown(WPARAM btnState, int x, int y)
 {
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
@@ -385,12 +381,12 @@ void TexColumnsApp::OnMouseDown(WPARAM btnState, int x, int y)
 	SetCapture(mhMainWnd);
 }
 
-void TexColumnsApp::OnMouseUp(WPARAM btnState, int x, int y)
+void DX12App::OnMouseUp(WPARAM btnState, int x, int y)
 {
 	ReleaseCapture();
 }
 
-void TexColumnsApp::OnMouseMove(WPARAM btnState, int x, int y)
+void DX12App::OnMouseMove(WPARAM btnState, int x, int y)
 {
 	if ((btnState & MK_LBUTTON) != 0)
 	{
@@ -406,7 +402,7 @@ void TexColumnsApp::OnMouseMove(WPARAM btnState, int x, int y)
 	mLastMousePos.y = y;
 }
 
-void TexColumnsApp::OnKeyboardInput(const GameTimer& gt)
+void DX12App::OnKeyboardInput(const GameTimer& gt)
 {
 	const float dt = gt.DeltaTime();
 
@@ -425,12 +421,12 @@ void TexColumnsApp::OnKeyboardInput(const GameTimer& gt)
 	mCamera.UpdateViewMatrix();
 }
 
-void TexColumnsApp::AnimateMaterials(const GameTimer& gt)
+void DX12App::AnimateMaterials(const GameTimer& gt)
 {
 
 }
 
-void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
+void DX12App::UpdateObjectCBs(const GameTimer& gt)
 {
 	auto currObjectCB = mCurrFrameResource->ObjectCB.get();
 	for (auto& e : mAllRitems)
@@ -468,7 +464,7 @@ void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
 	}
 }
 
-void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
+void DX12App::UpdateLightCBs(const GameTimer& gt)
 {
 	auto currLightCB = mCurrFrameResource->LightCB.get();
 	for (auto& e : mAllLights)
@@ -616,7 +612,7 @@ void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
 	}
 }
 
-void TexColumnsApp::UpdateMaterialCBs(const GameTimer& gt)
+void DX12App::UpdateMaterialCBs(const GameTimer& gt)
 {
 	auto currMaterialCB = mCurrFrameResource->MaterialCB.get();
 	for (auto& e : mMaterials)
@@ -643,7 +639,7 @@ void TexColumnsApp::UpdateMaterialCBs(const GameTimer& gt)
 	}
 }
 
-void TexColumnsApp::UpdatePostProcessCB(const GameTimer& gt)
+void DX12App::UpdatePostProcessCB(const GameTimer& gt)
 {
 	auto currPostProcessCB = mCurrFrameResource->PostProcessCB.get();
 	PostProcessSettings postProcessSettings;
@@ -661,7 +657,7 @@ void TexColumnsApp::UpdatePostProcessCB(const GameTimer& gt)
 	currPostProcessCB->CopyData(0, postProcessSettings);
 }
 
-void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
+void DX12App::UpdateMainPassCB(const GameTimer& gt)
 {
 	XMMATRIX view = mCamera.GetView();
 	XMMATRIX proj = mCamera.GetProj();
@@ -689,7 +685,7 @@ void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	currPassCB->CopyData(0, mMainPassCB);
 }
 
-void TexColumnsApp::LoadTexture(std::string name, std::wstring filename, TextureType type)
+void DX12App::LoadTexture(std::string name, std::wstring filename, TextureType type)
 {
 	auto tex = std::make_unique<Texture>();
 	tex->Filename = filename;
@@ -700,7 +696,7 @@ void TexColumnsApp::LoadTexture(std::string name, std::wstring filename, Texture
 	mTextures[name] = std::move(tex);
 }
 
-void TexColumnsApp::LoadTextures()
+void DX12App::LoadTextures()
 {
 	// Defaults
 	LoadTexture("black", L"../../Textures/black.dds");			 // always in 0 slot
@@ -724,7 +720,7 @@ void TexColumnsApp::LoadTextures()
 	LoadTexture("skyIrradianceCube", L"../../Textures/skyIrradianceCube.dds", TextureType::CUBEMAP);
 }
 
-void TexColumnsApp::BuildRootSignature()
+void DX12App::BuildRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE texTables[10];
 	for (int i = 0; i < 10; i++) {
@@ -769,7 +765,7 @@ void TexColumnsApp::BuildRootSignature()
 		IID_PPV_ARGS(mRootSignature["default"].GetAddressOf())));
 }
 
-void TexColumnsApp::BuildDescriptorHeaps()
+void DX12App::BuildDescriptorHeaps()
 {
 	//
 	// Create the SRV heap.
@@ -842,7 +838,7 @@ void TexColumnsApp::BuildDescriptorHeaps()
 		D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
 
-void TexColumnsApp::BuildShadersAndInputLayout()
+void DX12App::BuildShadersAndInputLayout()
 {
 	const D3D_SHADER_MACRO alphaTestDefines[] =
 	{
@@ -880,7 +876,7 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 	};
 }
 
-void TexColumnsApp::BuildShapeGeometry()
+void DX12App::BuildShapeGeometry()
 {
 	GeometryGenerator geoGen;
 	std::vector<GeometryGenerator::MeshData> allMeshData;
@@ -1002,7 +998,7 @@ void TexColumnsApp::BuildShapeGeometry()
 	mGeometries[geo->Name] = std::move(geo);
 }
 
-void TexColumnsApp::BuildPSOs()
+void DX12App::BuildPSOs()
 {
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
 
@@ -1233,7 +1229,7 @@ void TexColumnsApp::BuildPSOs()
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&mPSOs["PostProcessPSO"])));
 }
 
-void TexColumnsApp::BuildFrameResources()
+void DX12App::BuildFrameResources()
 {
 	for (int i = 0; i < gNumFrameResources; ++i)
 	{
@@ -1242,7 +1238,7 @@ void TexColumnsApp::BuildFrameResources()
 	}
 }
 
-void TexColumnsApp::BuildMaterials()
+void DX12App::BuildMaterials()
 {
 	int matCBI = 0;
 
@@ -1307,7 +1303,7 @@ void TexColumnsApp::BuildMaterials()
 	}
 }
 
-void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMATRIX translate, std::vector<std::string>* LODGeoNames, int layer, float scale, float scaleTex)
+void DX12App::BuildRenderItem(std::string name, std::string material, XMMATRIX translate, std::vector<std::string>* LODGeoNames, int layer, float scale, float scaleTex)
 {
 	auto ptr = std::make_unique<RenderItem>();
 	XMStoreFloat4x4(&ptr->World, XMMatrixScaling(scale, scale, scale) * translate);
@@ -1332,7 +1328,7 @@ void TexColumnsApp::BuildRenderItem(std::string name, std::string material, XMMA
 	mAllRitems.push_back(std::move(ptr));
 }
 
-void TexColumnsApp::BuildRenderItems()
+void DX12App::BuildRenderItems()
 {
 	BuildRenderItem("box", "sky", XMMatrixIdentity(), nullptr, (int) RenderLayer::Sky, 5000.0f);
 	BuildRenderItem("quad", "bricks0", XMMatrixIdentity(), nullptr, (int)RenderLayer::Debug);
@@ -1357,7 +1353,7 @@ void TexColumnsApp::BuildRenderItems()
 	}
 }
 
-void TexColumnsApp::BuildLightObjects()
+void DX12App::BuildLightObjects()
 {
 	auto dir1 = std::make_unique<LightObject>();
 	dir1->LightType = LightType::Directional;
@@ -1412,7 +1408,7 @@ void TexColumnsApp::BuildLightObjects()
 	}
 }
 
-void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+void DX12App::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
 	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
 	UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
@@ -1477,7 +1473,7 @@ void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const st
 	}
 }
 
-void TexColumnsApp::DrawDeferredGeometry()
+void DX12App::DrawDeferredGeometry()
 {
 	auto passCB = mCurrFrameResource->PassCB->Resource();
 	ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
@@ -1507,7 +1503,7 @@ void TexColumnsApp::DrawDeferredGeometry()
 	}
 }
 
-void TexColumnsApp::DrawDeferredLights()
+void DX12App::DrawDeferredLights()
 {
 	auto passCB = mCurrFrameResource->PassCB->Resource();
 
@@ -1585,7 +1581,7 @@ void TexColumnsApp::DrawDeferredLights()
 	mCommandList->DrawInstanced(6, 1, 0, 0); // todo 3?
 }
 
-void TexColumnsApp::DrawSkyBox()
+void DX12App::DrawSkyBox()
 {
 	mCommandList->SetPipelineState(mPSOs["sky"].Get());
 	auto passCB = mCurrFrameResource->PassCB->Resource();
@@ -1594,7 +1590,7 @@ void TexColumnsApp::DrawSkyBox()
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
 }
 
-void TexColumnsApp::DrawPostProcess()
+void DX12App::DrawPostProcess()
 {
 	// register input texture
 	CD3DX12_GPU_DESCRIPTOR_HANDLE texHandle(
@@ -1631,7 +1627,7 @@ void TexColumnsApp::DrawPostProcess()
 	mCommandList->DrawInstanced(3, 1, 0, 0);
 }
 
-void TexColumnsApp::DrawShadowMaps()
+void DX12App::DrawShadowMaps()
 {
 	auto passCB = mCurrFrameResource->PassCB->Resource();
 
@@ -1674,7 +1670,7 @@ void TexColumnsApp::DrawShadowMaps()
 	}
 }
 
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> TexColumnsApp::GetStaticSamplers()
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> DX12App::GetStaticSamplers()
 {
 	// Applications usually only need a handful of samplers.  So just define them all up front
 	// and keep them available as part of the root signature.  
