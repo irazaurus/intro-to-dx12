@@ -1,5 +1,6 @@
 Texture2D gInputImage : register(t0);
-Texture2D gDepthMap : register(t1);
+Texture2D gDepthMap   : register(t1);
+Texture2D gNormalMap  : register(t2);
 
 SamplerState gSampler : register(s0);
 
@@ -91,16 +92,13 @@ float4 LensBlur(float2 texCoord, float depth)
 
 float4 PS(VertexOut pin) : SV_Target
 {
-    float4 color = gInputImage.Sample(gSampler, pin.TexC);
+    uint2 pixelC = pin.PosH.xy;
+    float4 color = gInputImage.Load(int3(pixelC, 0));
     
     if (gEffectIntensity <= 0.0f)
         return color;
     
-    //float depth = 0.5f;
-    //uint width, height;
-    //gDepthMap.GetDimensions(width, height);
-    //if (width > 0 && height > 0)
-    float depth = gDepthMap.Sample(gSampler, pin.TexC);
+    float depth = gDepthMap.Load(int3(pixelC, 0)).w;
     
     switch (gEffectType)
     {

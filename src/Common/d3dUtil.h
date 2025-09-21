@@ -184,7 +184,14 @@ struct MeshGeometry
 	}
 };
 
-struct Light
+enum struct LightType
+{
+	Directional,
+	Pointlight,
+	Spotlight,
+};
+
+struct LightConstants
 {
     DirectX::XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
     float FalloffStart = 1.0f;                          // point/spot light only
@@ -192,6 +199,11 @@ struct Light
     float FalloffEnd = 10.0f;                           // point/spot light only
     DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  // point/spot light only
     float SpotPower = 64.0f;                            // spot light only
+	DirectX::XMFLOAT3 Color = { 1.f, 1.f, 1.f };
+	int LightType = 0; //0 - directional; 1 - point; 2 - spot
+	DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 ViewProj[6];
+	DirectX::XMFLOAT4X4 ShadowTransform[6];
 };
 
 #define MaxLights 16
@@ -204,6 +216,8 @@ struct MaterialConstants
 
 	// Used in texture mapping.
 	DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+	float Metallic;
+	DirectX::XMFLOAT3 MaterialPad2;
 };
 
 // Simple struct to represent a material for our demos.  A production 3D engine
@@ -216,11 +230,9 @@ struct Material
 	// Index into constant buffer corresponding to this material.
 	int MatCBIndex = -1;
 
-	// Index into SRV heap for diffuse texture.
-	int DiffuseSrvHeapIndex = -1;
-
-	// Index into SRV heap for normal texture.
-	int NormalSrvHeapIndex = -1;
+	int DiffuseSrvHeapIndex = 0;
+	int NormalSrvHeapIndex = 0;
+	int DisplaceSrvHeapIndex = 0;
 
 	// Dirty flag indicating the material has changed and we need to update the constant buffer.
 	// Because we have a material constant buffer for each FrameResource, we have to apply the
@@ -233,14 +245,23 @@ struct Material
 	DirectX::XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
 	float Roughness = .25f;
 	DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+	float Metallic = 0.f;
+};
+
+enum TextureType
+{
+	TEXTURE2D,
+	CUBEMAP
 };
 
 struct Texture
 {
 	// Unique material name for lookup.
 	std::string Name;
+	TextureType Type;
 
 	std::wstring Filename;
+	UINT SrvHeapIndex = 0;
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> Resource = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> UploadHeap = nullptr;

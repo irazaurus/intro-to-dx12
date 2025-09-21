@@ -471,6 +471,7 @@ bool D3DApp::InitDirect3D()
     LogAdapters();
 #endif
 
+	mGBuffer = std::make_unique<Gbuffer>(mClientWidth, mClientHeight, md3dDevice.Get());
 	CreateCommandObjects();
     CreateSwapChain();
     CreateRtvAndDsvDescriptorHeaps();

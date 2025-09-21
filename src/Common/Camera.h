@@ -71,6 +71,8 @@ public:
 
 	// After modifying camera position/orientation, call to rebuild the view matrix.
 	void UpdateViewMatrix();
+	DirectX::BoundingFrustum Bounds;
+
 
 private:
 
@@ -93,6 +95,7 @@ private:
 	// Cache View/Proj matrices.
 	DirectX::XMFLOAT4X4 mView = MathHelper::Identity4x4();
 	DirectX::XMFLOAT4X4 mProj = MathHelper::Identity4x4();
+	DirectX::BoundingFrustum BoundsOriginal;
 };
 
 #endif // CAMERA_H
