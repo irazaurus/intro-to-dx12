@@ -1,10 +1,10 @@
 #define NOMINMAX
 
-#include "../../Common/d3dApp.h"
-#include "../../Common/MathHelper.h"
-#include "../../Common/UploadBuffer.h"
-#include "../../Common/GeometryGenerator.h"
-#include "../../Common/Camera.h"
+#include "../Common/d3dApp.h"
+#include "../Common/MathHelper.h"
+#include "../Common/UploadBuffer.h"
+#include "../Common/GeometryGenerator.h"
+#include "../Common/Camera.h"
 #include "FrameResource.h"
 #include "ShadowMap.h"
 
@@ -699,25 +699,25 @@ void DX12App::LoadTexture(std::string name, std::wstring filename, TextureType t
 void DX12App::LoadTextures()
 {
 	// Defaults
-	LoadTexture("black", L"../../Textures/black.dds");			 // always in 0 slot
-	LoadTexture("diffuse", L"../../Textures/white1x1.dds");
+	LoadTexture("black", L"../Textures/black.dds");			 // always in 0 slot
+	LoadTexture("diffuse", L"../Textures/white1x1.dds");
 
 	// Bricks
-	LoadTexture("bricks_diffuse", L"../../Textures/grass.dds");
-	LoadTexture("bricks_norm", L"../../Textures/tile_nmap.dds");
-	LoadTexture("bricks_disp", L"../../Textures/checkboard.dds");
+	LoadTexture("bricks_diffuse", L"../Textures/grass.dds");
+	LoadTexture("bricks_norm", L"../Textures/tile_nmap.dds");
+	LoadTexture("bricks_disp", L"../Textures/checkboard.dds");
 
 	// Baronyx
-	LoadTexture("baryonyx_diffuse", L"../../Textures/baryonyx_diffuse.dds");
+	LoadTexture("baryonyx_diffuse", L"../Textures/baryonyx_diffuse.dds");
 
 	// trex
-	LoadTexture("trex_diffuse", L"../../Textures/trex_diffuse.dds");
-	LoadTexture("trex_nmap", L"../../Textures/trex_nmap.dds");
+	LoadTexture("trex_diffuse", L"../Textures/trex_diffuse.dds");
+	LoadTexture("trex_nmap", L"../Textures/trex_nmap.dds");
 
 	// Last textures for sky
-	LoadTexture("skyBrdf", L"../../Textures/skyBrdf.dds");
-	LoadTexture("skyDiffuseCube", L"../../Textures/skyDiffuseCube.dds", TextureType::CUBEMAP);
-	LoadTexture("skyIrradianceCube", L"../../Textures/skyIrradianceCube.dds", TextureType::CUBEMAP);
+	LoadTexture("skyBrdf", L"../Textures/skyBrdf.dds");
+	LoadTexture("skyDiffuseCube", L"../Textures/skyDiffuseCube.dds", TextureType::CUBEMAP);
+	LoadTexture("skyIrradianceCube", L"../Textures/skyIrradianceCube.dds", TextureType::CUBEMAP);
 }
 
 void DX12App::BuildRootSignature()
@@ -884,8 +884,8 @@ void DX12App::BuildShapeGeometry()
 	// if you want to generate new model -- generate it here
 	allMeshData.push_back( geoGen.CreateGrid(50.0f, 50.0f, 50, 50, 1.0f) );           // grid
 	allMeshData.push_back( geoGen.CreateBox(10.0f, 10.0f, 10.0f, 3) );                // box
-	allMeshData.push_back( geoGen.LoadModel("..\\..\\Models\\trex.obj"));             // trex
-	allMeshData.push_back( geoGen.LoadModel("..\\..\\Models\\Baryonyx.obj"));         // baryonyx
+	allMeshData.push_back( geoGen.LoadModel("..\\Models\\trex.obj"));             // trex
+	allMeshData.push_back( geoGen.LoadModel("..\\Models\\Baryonyx.obj"));         // baryonyx
 	allMeshData.push_back( geoGen.CreateCone(1.f, 3.f, 20, 20) );					  // cone for spot
 	allMeshData.push_back( geoGen.CreateSphere(1.f, 20, 20) );					      // sphere for point
 

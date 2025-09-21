@@ -11,7 +11,7 @@
 
 #include "d3dUtil.h"
 #include "GameTimer.h"
-#include "..\Chapter 9 Texturing\DX12App\Gbuffer.h"
+#include "..\DX12App\Gbuffer.h"
 
 // Link necessary d3d12 libraries.
 #pragma comment(lib,"d3dcompiler.lib")

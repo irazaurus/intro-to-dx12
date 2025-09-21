@@ -1,5 +1,5 @@
 ﻿#include "Gbuffer.h"
-#include "../../Common/d3dx12.h"
+#include "../Common/d3dx12.h"
 #include <stdexcept>
 
 Gbuffer::Gbuffer(int width, int height, Microsoft::WRL::ComPtr<ID3D12Device> device)
