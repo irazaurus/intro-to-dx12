@@ -846,7 +846,8 @@ void DX12App::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
-	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "VS", "vs_5_0");
+	mShaders["deferredVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "VSWithoutTess", "vs_5_0");
+	mShaders["tessVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "VS", "vs_5_0");
 	mShaders["tessHS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "HS", "hs_5_0");
 	mShaders["tessDS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "DS", "ds_5_0");
 	mShaders["deferredPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "DeferredPS", "ps_5_0");
@@ -1010,18 +1011,8 @@ void DX12App::BuildPSOs()
 	opaquePsoDesc.pRootSignature = mRootSignature["default"].Get();
 	opaquePsoDesc.VS =
 	{
-		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
-		mShaders["standardVS"]->GetBufferSize()
-	};
-	opaquePsoDesc.HS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["tessHS"]->GetBufferPointer()),
-		mShaders["tessHS"]->GetBufferSize()
-	};
-	opaquePsoDesc.DS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["tessDS"]->GetBufferPointer()),
-		mShaders["tessDS"]->GetBufferSize()
+		reinterpret_cast<BYTE*>(mShaders["deferredVS"]->GetBufferPointer()),
+		mShaders["deferredVS"]->GetBufferSize()
 	};
 	opaquePsoDesc.PS =
 	{
@@ -1037,7 +1028,7 @@ void DX12App::BuildPSOs()
 	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.SampleMask = UINT_MAX;
-	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 	opaquePsoDesc.NumRenderTargets = 1;
 	opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
 	opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
@@ -1103,7 +1094,6 @@ void DX12App::BuildPSOs()
 		reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()),
 		mShaders["skyPS"]->GetBufferSize()
 	};
-	skyPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
 
 	//
@@ -1127,6 +1117,24 @@ void DX12App::BuildPSOs()
 	deferredGeometryPsoDesc.RTVFormats[3] = DXGI_FORMAT_R8G8B8A8_UNORM;        // diffuse albedo
 	deferredGeometryPsoDesc.RTVFormats[4] = DXGI_FORMAT_R8G8B8A8_UNORM;        // fresnel & roughness
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredGeometryPsoDesc, IID_PPV_ARGS(&mPSOs["deferredGeometry"])));
+
+	deferredGeometryPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["tessVS"]->GetBufferPointer()),
+		mShaders["tessVS"]->GetBufferSize()
+	};
+	deferredGeometryPsoDesc.HS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["tessHS"]->GetBufferPointer()),
+		mShaders["tessHS"]->GetBufferSize()
+	};
+	deferredGeometryPsoDesc.DS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["tessDS"]->GetBufferPointer()),
+		mShaders["tessDS"]->GetBufferSize()
+	};
+	deferredGeometryPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredGeometryPsoDesc, IID_PPV_ARGS(&mPSOs["tessGeometry"])));
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC deferredPsoDesc = {};
 	deferredPsoDesc.InputLayout = { nullptr, 0 };
@@ -1334,7 +1342,7 @@ void DX12App::BuildRenderItems()
 	BuildRenderItem("quad", "bricks0", XMMatrixIdentity(), nullptr, (int)RenderLayer::Debug);
 
 	BuildRenderItem("box", "bricks0", XMMatrixTranslation(15.f, 0.f, 0.f), nullptr);
-	BuildRenderItem("box", "bricks0", XMMatrixScaling(50.f, 0.1f, 50.f) * XMMatrixTranslation(0.f, -5.f, 10.f), nullptr, 0, 1.f, 300.f);
+	BuildRenderItem("box", "bricks0", XMMatrixScaling(50.f, 0.1f, 50.f) * XMMatrixTranslation(0.f, -5.f, 10.f), nullptr, 0, 1.f, 10.f);
 	BuildRenderItem("trex", "trex", XMMatrixTranslation(40.f, -5.f, -60.f), nullptr, 0, 2.f);
 
 	std::vector<std::string> BaryonyxLODs = {"Baryonyx", "box"};
@@ -1494,7 +1502,7 @@ void DX12App::DrawDeferredGeometry()
 	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 	mCommandList->SetGraphicsRootConstantBufferView(11, passCB->GetGPUVirtualAddress());
 
-	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	DrawRenderItems(mCommandList.Get(), mVisibleRitems[(int)RenderLayer::Opaque]);
 	
 	for (int i = 0; i < mVisibleRitems->size(); i++)

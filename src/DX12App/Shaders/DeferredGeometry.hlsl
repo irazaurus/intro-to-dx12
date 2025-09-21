@@ -5,7 +5,7 @@ Texture2D gNormalMap : register(t1);
 Texture2D gDisplacementMap : register(t2);
 Texture2DArray gShadowMap : register(t3);
 
-struct Vertex
+struct VertexIn
 {
     float3 Tangent : TANGENT;
     float3 PosL : POSITION;
@@ -13,19 +13,11 @@ struct Vertex
     float2 TexC : TEXCOORD;
 };
 
-struct HullOut
-{
-    float3 Tangent : TANGENT;
-    float3 PosL : POSITION;
-    float3 NormalW : NORMAL;
-    float2 TexC : TEXCOORD;
-};
-
-struct DomainOut
+struct VertexOut
 {
     float3 Tangent : TANGENT;
     float4 PosH : SV_POSITION;
-    float3 NormalW : NORMAL;
+    float3 NormalL : NORMAL;
     float2 TexC : TEXCOORD;
 };
  
@@ -44,13 +36,26 @@ struct GBufferData
     float4 MaterialFresnelRoughness : SV_TARGET4;
 };
 
-Vertex VS(Vertex vin)
+VertexIn VS(VertexIn vin)
 {
     vin.TexC = mul(float4(vin.TexC, 0.f, 1.f), gTexTransform).xy;
     return vin;
 }
 
-PatchTess ConstantHS(InputPatch<Vertex, 3> patch, uint patchID : SV_PrimitiveID)
+VertexOut VSWithoutTess(VertexIn vin)
+{
+    VertexOut vo;
+    
+    vo.Tangent = vin.Tangent;
+    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+    vo.PosH = mul(posW, gViewProj);
+    vo.NormalL = vin.NormalL;
+    vo.TexC = mul(float4(vin.TexC, 0.f, 1.f), gTexTransform).xy;
+    
+    return vo;
+}
+
+PatchTess ConstantHS(InputPatch<VertexIn, 3> patch, uint patchID : SV_PrimitiveID)
 {
     PatchTess pt;
     float tess = 1;
@@ -72,14 +77,14 @@ PatchTess ConstantHS(InputPatch<Vertex, 3> patch, uint patchID : SV_PrimitiveID)
 [outputcontrolpoints(3)]
 [patchconstantfunc("ConstantHS")]
 [maxtessfactor(64.0f)]
-HullOut HS(InputPatch<Vertex, 3> p,
+VertexIn HS(InputPatch<VertexIn, 3> p,
            uint i : SV_OutputControlPointID,
            uint patchId : SV_PrimitiveID)
 {
-    HullOut hout;
+    VertexIn hout;
 	
     hout.PosL = p[i].PosL;
-    hout.NormalW = p[i].NormalL;
+    hout.NormalL = p[i].NormalL;
     hout.TexC = p[i].TexC;
     hout.Tangent = p[i].Tangent;
 	
@@ -87,11 +92,11 @@ HullOut HS(InputPatch<Vertex, 3> p,
 }
 
 [domain("tri")]
-DomainOut DS(PatchTess patchTess,
+VertexOut DS(PatchTess patchTess,
              float3 bary : SV_DomainLocation,
-             const OutputPatch<HullOut, 3> tri)
+             const OutputPatch<VertexIn, 3> tri)
 {
-    DomainOut dout;
+    VertexOut dout;
     
     float3 p = bary.x * tri[0].PosL +
                bary.y * tri[1].PosL +
@@ -108,9 +113,9 @@ DomainOut DS(PatchTess patchTess,
                bary.z * tri[2].TexC;
     t = float2(abs(t.x) - (uint) t.x, abs(t.y) - (uint) t.y);
     
-    float3 norm = bary.x * tri[0].NormalW +
-               bary.y * tri[1].NormalW +
-               bary.z * tri[2].NormalW;
+    float3 norm = bary.x * tri[0].NormalL +
+               bary.y * tri[1].NormalL +
+               bary.z * tri[2].NormalL;
 
     // Displacement mapping
     uint width, height;
@@ -122,14 +127,14 @@ DomainOut DS(PatchTess patchTess,
     
     float4 posW = mul(float4(p, 1.0f), gWorld);
     dout.PosH = mul(posW, gViewProj);
-    dout.NormalW = norm;
+    dout.NormalL = norm;
     dout.Tangent = tri[0].Tangent;
     dout.TexC = t;
 
     return dout;
 }
 
-GBufferData DeferredPS(DomainOut pin)
+GBufferData DeferredPS(VertexOut pin)
 {
     GBufferData pout;
     
@@ -137,18 +142,18 @@ GBufferData DeferredPS(DomainOut pin)
     if (length(normalMap) != 0.f)
     {    
 	// TBN
-        float3 bitangent = (cross(pin.NormalW, pin.Tangent));
+        float3 bitangent = (cross(pin.NormalL, pin.Tangent));
         bitangent = normalize(mul(bitangent, (float3x3) gWorld));
         float3 tangent = normalize(mul(pin.Tangent, (float3x3) gWorld));
-        float3 normal = normalize(mul(pin.NormalW, (float3x3) gWorld));
-        float3x3 TBN = float3x3(pin.Tangent, bitangent, pin.NormalW);
+        float3 normal = normalize(mul(pin.NormalL, (float3x3) gWorld));
+        float3x3 TBN = float3x3(pin.Tangent, bitangent, pin.NormalL);
     
 	// normal from texture
         normalMap = normalMap * 2.0f - 1.0f;
         normalMap = normalize(mul(normalMap, TBN));
     }
     else
-        normalMap = normalize(pin.NormalW);
+        normalMap = normalize(pin.NormalL);
     
     float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
 
