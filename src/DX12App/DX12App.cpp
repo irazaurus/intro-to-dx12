@@ -25,6 +25,7 @@ enum class RenderLayer : int
 	Opaque = 0,
 	Debug,
 	Sky,
+	Terrain,
 	Count
 };
 
@@ -114,6 +115,7 @@ private:
 
 	void LoadTexture(std::string name, std::wstring filename, TextureType type = TextureType::TEXTURE2D);
 	void LoadTextures();
+	void LoadTerrainTextures();
 	void BuildRootSignature();
 	void BuildDescriptorHeaps();
 	void BuildShadersAndInputLayout();
@@ -123,6 +125,7 @@ private:
 	void BuildMaterials();
 	void BuildRenderItem(std::string name, std::string material, XMMATRIX translate, std::vector<std::string>* LODGeoNames, int layer = (int)RenderLayer::Opaque, float scale = 1.f, float scaleTex = 1.f);
 	void BuildRenderItems();
+	void BuildTerrainRenderItems();
 	void BuildLightObjects();
 	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 	void DrawDeferredGeometry();
@@ -221,12 +224,14 @@ bool DX12App::Initialize()
 	mCamera.RotateY(0.7f);
 
 	LoadTextures();
+	LoadTerrainTextures();
 	BuildRootSignature();
 	BuildDescriptorHeaps();
 	BuildShadersAndInputLayout();
 	BuildShapeGeometry();
 	BuildMaterials();
 	BuildRenderItems();
+	BuildTerrainRenderItems();
 	BuildLightObjects();
 	BuildFrameResources();
 	BuildPSOs();
@@ -720,6 +725,13 @@ void DX12App::LoadTextures()
 	LoadTexture("skyIrradianceCube", L"../Textures/skyIrradianceCube.dds", TextureType::CUBEMAP);
 }
 
+void DX12App::LoadTerrainTextures()
+{
+	LoadTexture("terrain_dif", L"../Textures/tile.dds");
+	LoadTexture("terrain_disp", L"../Textures/tile.dds");
+	LoadTexture("terrain_norm", L"../Textures/tile_nmap.dds");
+}
+
 void DX12App::BuildRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE texTables[10];
@@ -883,7 +895,7 @@ void DX12App::BuildShapeGeometry()
 	std::vector<GeometryGenerator::MeshData> allMeshData;
 
 	// if you want to generate new model -- generate it here
-	allMeshData.push_back( geoGen.CreateGrid(50.0f, 50.0f, 50, 50, 1.0f) );           // grid
+	allMeshData.push_back( geoGen.CreateGrid(50.0f, 50.0f, 10, 10, 1.0f) );           // grid
 	allMeshData.push_back( geoGen.CreateBox(10.0f, 10.0f, 10.0f, 3) );                // box
 	allMeshData.push_back( geoGen.LoadModel("..\\Models\\trex.obj"));             // trex
 	allMeshData.push_back( geoGen.LoadModel("..\\Models\\Baryonyx.obj"));         // baryonyx
@@ -1293,6 +1305,7 @@ void DX12App::BuildMaterials()
 
 	mMaterials[sky->Name] = std::move(sky);
 
+	// terrain
 	for (int i = 0; i < 11; i++)
 	{
 		for (int j = 0; j < 11; j++)
@@ -1309,6 +1322,19 @@ void DX12App::BuildMaterials()
 			mMaterials[sphere->Name] = std::move(sphere);
 		}
 	}
+
+	// terrain
+	auto terrain = std::make_unique<Material>();
+	terrain->Name = "terrain";
+	terrain->MatCBIndex = matCBI++;
+	terrain->DiffuseSrvHeapIndex = mTextures["terrain_dif"]->SrvHeapIndex;
+	terrain->DisplaceSrvHeapIndex = mTextures["terrain_dif"]->SrvHeapIndex;
+	terrain->NormalSrvHeapIndex = mTextures["terrain_norm"]->SrvHeapIndex;
+	terrain->DiffuseAlbedo = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
+	terrain->FresnelR0 = XMFLOAT3(0.5f, 0.5f, 0.5f);
+	terrain->Roughness = 1.0f;
+
+	mMaterials[terrain->Name] = std::move(terrain);
 }
 
 void DX12App::BuildRenderItem(std::string name, std::string material, XMMATRIX translate, std::vector<std::string>* LODGeoNames, int layer, float scale, float scaleTex)
@@ -1320,10 +1346,6 @@ void DX12App::BuildRenderItem(std::string name, std::string material, XMMATRIX t
 	ptr->Mat = mMaterials[material].get();
 	ptr->Geo = mGeometries["shapeGeo"].get();
 	ptr->geoName = name;
-	if (layer == 0)
-		ptr->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
-	else
-		ptr->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	ptr->IndexCount = ptr->Geo->DrawArgs[name].IndexCount;
 	ptr->Geo->DrawArgs[name].Bounds.Transform(ptr->Bounds, XMLoadFloat4x4(&ptr->World));
 	ptr->StartIndexLocation = ptr->Geo->DrawArgs[name].StartIndexLocation;
@@ -1342,7 +1364,7 @@ void DX12App::BuildRenderItems()
 	BuildRenderItem("quad", "bricks0", XMMatrixIdentity(), nullptr, (int)RenderLayer::Debug);
 
 	BuildRenderItem("box", "bricks0", XMMatrixTranslation(15.f, 0.f, 0.f), nullptr);
-	BuildRenderItem("box", "bricks0", XMMatrixScaling(50.f, 0.1f, 50.f) * XMMatrixTranslation(0.f, -5.f, 10.f), nullptr, 0, 1.f, 10.f);
+	//BuildRenderItem("box", "bricks0", XMMatrixScaling(50.f, 0.1f, 50.f) * XMMatrixTranslation(0.f, -5.f, 10.f), nullptr, 0, 1.f, 10.f);
 	BuildRenderItem("trex", "trex", XMMatrixTranslation(40.f, -5.f, -60.f), nullptr, 0, 2.f);
 
 	std::vector<std::string> BaryonyxLODs = {"Baryonyx", "box"};
@@ -1359,6 +1381,11 @@ void DX12App::BuildRenderItems()
 				XMMatrixTranslation(i * spacing - 80.f, 0.f, j * spacing - 80.f), nullptr, 0, 3);
 		}
 	}
+}
+
+void DX12App::BuildTerrainRenderItems()
+{
+	BuildRenderItem("grid", "terrain", XMMatrixTranslation(0.f, -5.f, 0.f), nullptr, (int)RenderLayer::Terrain);
 }
 
 void DX12App::BuildLightObjects()
@@ -1504,6 +1531,11 @@ void DX12App::DrawDeferredGeometry()
 
 	mCommandList->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	DrawRenderItems(mCommandList.Get(), mVisibleRitems[(int)RenderLayer::Opaque]);
+
+	// terrain w/ tessellation draw
+	mCommandList->SetPipelineState(mPSOs["tessGeometry"].Get());
+	mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+	DrawRenderItems(mCommandList.Get(), mVisibleRitems[(int)RenderLayer::Terrain]);
 	
 	for (int i = 0; i < mVisibleRitems->size(); i++)
 	{
