@@ -16,7 +16,7 @@ struct VertexIn
 struct VertexOut
 {
     float3 Tangent : TANGENT;
-    float3 PosL : POSITION;
+    float4 PosW : POSITION;
     float4 PosH : SV_POSITION;
     float3 NormalL : NORMAL;
     float2 TexC : TEXCOORD;
@@ -55,29 +55,50 @@ bool isVertexOnEdge(float2 TexC1, float2 TexC2)
     return false;
 }
 
-VertexIn VS(VertexIn vin)
+VertexIn tessVS(VertexIn vin)
 {
     vin.TexC = mul(float4(vin.TexC, 0.f, 1.f), gTexTransform).xy;
     return vin;
 }
 
-VertexOut VSWithoutTess(VertexIn vin)
+VertexOut VS(VertexIn vin)
 {
     VertexOut vo;
     
     vo.Tangent = vin.Tangent;
-    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
-    vo.PosH = mul(posW, gViewProj);
+    vo.PosW = mul(float4(vin.PosL, 1.0f), gWorld);
+    vo.PosH = mul(vo.PosW, gViewProj);
     vo.NormalL = vin.NormalL;
     vo.TexC = mul(float4(vin.TexC, 0.f, 1.f), gTexTransform).xy;
     
     return vo;
 }
 
+VertexOut displaceVS(VertexIn vin)
+{
+    VertexOut vo;
+    
+    vo.Tangent = vin.Tangent;
+    vo.PosW = mul(float4(vin.PosL, 1.0f), gWorld);
+    vo.NormalL = vin.NormalL;
+    vo.TexC = mul(float4(vin.TexC, 0.f, 1.f), gTexTransform).xy;
+    
+    // Displacement mapping
+    uint width, height;
+    gDisplacementMap.GetDimensions(width, height);
+    float disp = gDisplacementMap.Load(int3(vo.TexC.x * width, vo.TexC.y * height, 0)).r;
+    vo.PosW.y += disp * 2.0f;
+    
+    vo.PosH = mul(vo.PosW, gViewProj);
+    
+    return vo;
+}
+
+
 PatchTess ConstantHS(InputPatch<VertexIn, 3> patch, uint patchID : SV_PrimitiveID)
 {
     PatchTess pt;
-    float tess = 1;
+    float tess = 1.f;
 
 	// Uniformly tessellate the patch.
     
@@ -142,11 +163,10 @@ VertexOut DS(PatchTess patchTess,
     float disp = gDisplacementMap.Load(int3(t.x * width, t.y * height, 0)).r;
     if (abs(disp) < 1e-5f)
         disp = 1.0f;
-    p.y += disp * 1.0f;
+    p.y += disp * 2.0f;
     
-    dout.PosL = p;
-    float4 posW = mul(float4(p, 1.0f), gWorld);
-    dout.PosH = mul(posW, gViewProj);
+    dout.PosW = mul(float4(p, 1.0f), gWorld);
+    dout.PosH = mul(dout.PosW, gViewProj);
     dout.NormalL = norm;
     dout.Tangent = tri[0].Tangent;
     dout.TexC = t;
@@ -177,12 +197,12 @@ void curtainsGS(triangle VertexOut p[3], inout TriangleStream<VertexOut> stream)
         {
             // if yes -- generate from it two triangles down
             VertexOut p3 = p1;
-            p3.PosL.y -= downOffset;
-            p3.PosH = mul(mul(float4(p3.PosL, 1.0f), gWorld), gViewProj);
+            p3.PosW.y -= downOffset;
+            p3.PosH = mul(p3.PosW, gViewProj);
             
             VertexOut p4 = p2;
-            p4.PosL.y -= downOffset;
-            p4.PosH = mul(mul(float4(p4.PosL, 1.0f), gWorld), gViewProj);
+            p4.PosW.y -= downOffset;
+            p4.PosH = mul(p4.PosW, gViewProj);
             
             stream.Append(p1);
             stream.Append(p2);

@@ -727,9 +727,9 @@ void DX12App::LoadTextures()
 
 void DX12App::LoadTerrainTextures()
 {
-	LoadTexture("terrain_dif", L"../Textures/tile.dds");
-	LoadTexture("terrain_disp", L"../Textures/tile.dds");
-	LoadTexture("terrain_norm", L"../Textures/tile_nmap.dds");
+	LoadTexture("terrain_dif", L"../Textures/Terrain/tile_diffuse_level3_0_0.dds");
+	LoadTexture("terrain_disp", L"../Textures/Terrain/tile_height_level3_0_0.dds");
+	LoadTexture("terrain_norm", L"../Textures/Terrain/tile_normal_level3_0_0.dds");
 }
 
 void DX12App::BuildRootSignature()
@@ -858,8 +858,9 @@ void DX12App::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
-	mShaders["deferredVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "VSWithoutTess", "vs_5_0");
-	mShaders["tessVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "VS", "vs_5_0");
+	mShaders["deferredVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "VS", "vs_5_0");
+	mShaders["displaceVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "displaceVS", "vs_5_0");
+	mShaders["tessVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "tessVS", "vs_5_0");
 	mShaders["tessHS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "HS", "hs_5_0");
 	mShaders["tessDS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "DS", "ds_5_0");
 	mShaders["curtainsGS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "curtainsGS", "gs_5_0");
@@ -896,7 +897,7 @@ void DX12App::BuildShapeGeometry()
 	std::vector<GeometryGenerator::MeshData> allMeshData;
 
 	// if you want to generate new model -- generate it here
-	allMeshData.push_back( geoGen.CreateGrid(50.0f, 50.0f, 10, 10, 1.0f) );           // grid
+	allMeshData.push_back( geoGen.CreateGrid(10.0f, 10.0f, 128, 128, 1.0f) );           // grid
 	allMeshData.push_back( geoGen.CreateBox(10.0f, 10.0f, 10.0f, 3) );                // box
 	allMeshData.push_back( geoGen.LoadModel("..\\Models\\trex.obj"));             // trex
 	allMeshData.push_back( geoGen.LoadModel("..\\Models\\Baryonyx.obj"));         // baryonyx
@@ -1133,6 +1134,18 @@ void DX12App::BuildPSOs()
 
 	deferredGeometryPsoDesc.VS =
 	{
+		reinterpret_cast<BYTE*>(mShaders["displaceVS"]->GetBufferPointer()),
+		mShaders["displaceVS"]->GetBufferSize()
+	};
+	deferredGeometryPsoDesc.GS =
+	{
+	  reinterpret_cast<BYTE*>(mShaders["curtainsGS"]->GetBufferPointer()),
+	  mShaders["curtainsGS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredGeometryPsoDesc, IID_PPV_ARGS(&mPSOs["terrainGeometry"])));
+
+	deferredGeometryPsoDesc.VS =
+	{
 		reinterpret_cast<BYTE*>(mShaders["tessVS"]->GetBufferPointer()),
 		mShaders["tessVS"]->GetBufferSize()
 	};
@@ -1145,11 +1158,6 @@ void DX12App::BuildPSOs()
 	{
 		reinterpret_cast<BYTE*>(mShaders["tessDS"]->GetBufferPointer()),
 		mShaders["tessDS"]->GetBufferSize()
-	};
-	deferredGeometryPsoDesc.GS =
-	{
-	  reinterpret_cast<BYTE*>(mShaders["curtainsGS"]->GetBufferPointer()),
-	  mShaders["curtainsGS"]->GetBufferSize()
 	};
 	deferredGeometryPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredGeometryPsoDesc, IID_PPV_ARGS(&mPSOs["tessGeometry"])));
@@ -1339,6 +1347,7 @@ void DX12App::BuildMaterials()
 	terrain->DiffuseAlbedo = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
 	terrain->FresnelR0 = XMFLOAT3(0.5f, 0.5f, 0.5f);
 	terrain->Roughness = 1.0f;
+	terrain->Metallic = 0.1f;
 
 	mMaterials[terrain->Name] = std::move(terrain);
 }
@@ -1369,8 +1378,7 @@ void DX12App::BuildRenderItems()
 	BuildRenderItem("box", "sky", XMMatrixIdentity(), nullptr, (int) RenderLayer::Sky, 5000.0f);
 	BuildRenderItem("quad", "bricks0", XMMatrixIdentity(), nullptr, (int)RenderLayer::Debug);
 
-	BuildRenderItem("box", "bricks0", XMMatrixTranslation(15.f, 0.f, 0.f), nullptr);
-	//BuildRenderItem("box", "bricks0", XMMatrixScaling(50.f, 0.1f, 50.f) * XMMatrixTranslation(0.f, -5.f, 10.f), nullptr, 0, 1.f, 10.f);
+	//BuildRenderItem("box", "bricks0", XMMatrixTranslation(15.f, 0.f, 0.f), nullptr);
 	BuildRenderItem("trex", "trex", XMMatrixTranslation(40.f, -5.f, -60.f), nullptr, 0, 2.f);
 
 	std::vector<std::string> BaryonyxLODs = {"Baryonyx", "box"};
@@ -1391,7 +1399,7 @@ void DX12App::BuildRenderItems()
 
 void DX12App::BuildTerrainRenderItems()
 {
-	BuildRenderItem("grid", "terrain", XMMatrixTranslation(0.f, -5.f, 0.f), nullptr, (int)RenderLayer::Terrain);
+	BuildRenderItem("grid", "terrain", XMMatrixScaling(5.f, 1.0f, 5.f) * XMMatrixTranslation(0.f, -5.f, 0.f), nullptr, (int)RenderLayer::Terrain);
 }
 
 void DX12App::BuildLightObjects()
@@ -1539,11 +1547,10 @@ void DX12App::DrawDeferredGeometry()
 	DrawRenderItems(mCommandList.Get(), mVisibleRitems[(int)RenderLayer::Opaque]);
 
 	// terrain w/ tessellation draw
-	mCommandList->SetPipelineState(mPSOs["tessGeometry"].Get());
-	mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+	mCommandList->SetPipelineState(mPSOs["terrainGeometry"].Get());
 	DrawRenderItems(mCommandList.Get(), mVisibleRitems[(int)RenderLayer::Terrain]);
 	
-	for (int i = 0; i < mVisibleRitems->size(); i++)
+	for (int i = 0; i < (int)RenderLayer::Count; i++)
 	{
 		mVisibleRitems[i].clear();
 	}
