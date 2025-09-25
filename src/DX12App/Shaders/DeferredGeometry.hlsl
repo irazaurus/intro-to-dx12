@@ -16,6 +16,7 @@ struct VertexIn
 struct VertexOut
 {
     float3 Tangent : TANGENT;
+    float3 PosL : POSITION;
     float4 PosH : SV_POSITION;
     float3 NormalL : NORMAL;
     float2 TexC : TEXCOORD;
@@ -35,6 +36,24 @@ struct GBufferData
     float4 materialAlbedo : SV_TARGET3;
     float4 MaterialFresnelRoughness : SV_TARGET4;
 };
+
+bool isVertexOnEdge(float2 TexC1, float2 TexC2)
+{
+    float scale = 1e-3;
+    
+    if (abs(TexC1.x) < scale && abs(TexC2.x) < scale)
+        return true;
+    if (abs(TexC1.y) < scale && abs(TexC2.y) < scale)
+        return true;
+    
+    
+    if (abs(1.f - TexC1.x) < scale && abs(1.f - TexC2.x) < scale)
+        return true;
+    if (abs(1.f - TexC1.y) < scale && abs(1.f - TexC2.y) < scale)
+        return true;
+    
+    return false;
+}
 
 VertexIn VS(VertexIn vin)
 {
@@ -125,6 +144,7 @@ VertexOut DS(PatchTess patchTess,
         disp = 1.0f;
     p.y += disp * 1.0f;
     
+    dout.PosL = p;
     float4 posW = mul(float4(p, 1.0f), gWorld);
     dout.PosH = mul(posW, gViewProj);
     dout.NormalL = norm;
@@ -132,6 +152,49 @@ VertexOut DS(PatchTess patchTess,
     dout.TexC = t;
 
     return dout;
+}
+
+[maxvertexcount(21)]
+void curtainsGS(triangle VertexOut p[3], inout TriangleStream<VertexOut> stream)
+{
+    stream.Append(p[0]);
+    stream.Append(p[1]);
+    stream.Append(p[2]);
+    
+    float downOffset = 10.f;
+    int sides[3][2] = { { 0, 1 }, { 1, 2 }, { 2, 0 } };
+    
+    VertexOut p1, p2;
+    
+    // check if triangle's side is on the edge
+    
+    for (int i = 0; i < 3; i++)
+    {
+        p1 = p[sides[i][0]];
+        p2 = p[sides[i][1]];
+        
+        if (isVertexOnEdge(p1.TexC, p2.TexC))
+        {
+            // if yes -- generate from it two triangles down
+            VertexOut p3 = p1;
+            p3.PosL.y -= downOffset;
+            p3.PosH = mul(mul(float4(p3.PosL, 1.0f), gWorld), gViewProj);
+            
+            VertexOut p4 = p2;
+            p4.PosL.y -= downOffset;
+            p4.PosH = mul(mul(float4(p4.PosL, 1.0f), gWorld), gViewProj);
+            
+            stream.Append(p1);
+            stream.Append(p2);
+            stream.Append(p4);
+            
+            stream.Append(p1);
+            stream.Append(p3);
+            stream.Append(p4);
+        }
+
+    }
+    
 }
 
 GBufferData DeferredPS(VertexOut pin)

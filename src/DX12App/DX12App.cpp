@@ -862,6 +862,7 @@ void DX12App::BuildShadersAndInputLayout()
 	mShaders["tessVS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "VS", "vs_5_0");
 	mShaders["tessHS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "HS", "hs_5_0");
 	mShaders["tessDS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "DS", "ds_5_0");
+	mShaders["curtainsGS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "curtainsGS", "gs_5_0");
 	mShaders["deferredPS"] = d3dUtil::CompileShader(L"Shaders\\DeferredGeometry.hlsl", nullptr, "DeferredPS", "ps_5_0");
 	
 	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
@@ -1144,6 +1145,11 @@ void DX12App::BuildPSOs()
 	{
 		reinterpret_cast<BYTE*>(mShaders["tessDS"]->GetBufferPointer()),
 		mShaders["tessDS"]->GetBufferSize()
+	};
+	deferredGeometryPsoDesc.GS =
+	{
+	  reinterpret_cast<BYTE*>(mShaders["curtainsGS"]->GetBufferPointer()),
+	  mShaders["curtainsGS"]->GetBufferSize()
 	};
 	deferredGeometryPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&deferredGeometryPsoDesc, IID_PPV_ARGS(&mPSOs["tessGeometry"])));
