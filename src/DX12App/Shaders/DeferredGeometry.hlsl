@@ -85,9 +85,8 @@ VertexOut displaceVS(VertexIn vin)
     
     // Displacement mapping
     uint width, height;
-    gDisplacementMap.GetDimensions(width, height);
-    float disp = gDisplacementMap.Load(int3(vo.TexC.x * width, vo.TexC.y * height, 0)).r;
-    vo.PosW.y += disp * 2.0f;
+    float disp = gDisplacementMap.SampleLevel(gsamAnisotropicClamp, vo.TexC, 0).r;
+    vo.PosW.y += disp * 250.0f;
     
     vo.PosH = mul(vo.PosW, gViewProj);
     
@@ -215,6 +214,23 @@ void curtainsGS(triangle VertexOut p[3], inout TriangleStream<VertexOut> stream)
 
     }
     
+}
+
+GBufferData OriginalNormalPS(VertexOut pin)
+{
+    GBufferData pout;
+    
+    float3 normalMap = gNormalMap.Sample(gsamAnisotropicWrap, pin.TexC).rgb;
+    
+    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
+
+    pout.diffuse = diffuseAlbedo;
+    pout.zwzanashih_RGBA32F = float4(0.f, 0.f, 0.f, pin.PosH.z);
+    pout.normal = float4(normalMap, Metallic);
+    pout.materialAlbedo = gDiffuseAlbedo;
+    pout.MaterialFresnelRoughness = float4(gFresnelR0, gRoughness);
+
+    return pout;
 }
 
 GBufferData DeferredPS(VertexOut pin)
