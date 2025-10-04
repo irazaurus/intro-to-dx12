@@ -15,7 +15,7 @@ using namespace DirectX::PackedVector;
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
 
-// #define DEBUG_VIEW
+#define DEBUG_VIEW
 // #define DEBUG
 
 const int gNumFrameResources = 3;
@@ -71,8 +71,8 @@ struct RenderItem
 
 struct Node
 {
-	RenderItem* RItem;
-	Node* children[4];
+	RenderItem* RItem = nullptr;
+	Node* children[4] = { nullptr };
 	int layer = 0;
 	bool hasChildren = false;
 };
@@ -191,6 +191,7 @@ private:
 	Node* root = nullptr;
 	int layers = 4;
 	float RootSize = 1024.f;
+	float thresholds[5] = {1500.f, 1000.f, 500.f, 200.f, 100.f};
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
@@ -1786,7 +1787,7 @@ Node* DX12App::BuildNode(int layer, float x, float y, int xi, int yi)
 	OutputDebugStringA(debugString.c_str());
 
 	node->RItem = BuildRenderItem("grid", "terrain" + std::to_string(layer) + "_" + std::to_string(xi) + "_" + std::to_string(yi),
-		XMMatrixScaling(scaleFactor, 1.0f, scaleFactor) * XMMatrixTranslation(x, -50.f, y),
+		XMMatrixScaling(scaleFactor, 1.0f, scaleFactor) * XMMatrixTranslation(x, -40.f, y),
 		nullptr, (int)RenderLayer::Terrain);
 
 	if (layer > layers - 2)
@@ -1836,9 +1837,7 @@ void DX12App::ChooseVisibleTerrainTile(Node* node)
 	float distToCam;
 	XMStoreFloat(&distToCam, XMVector3Length(XMVectorSubtract(mCamera.GetPosition(), XMLoadFloat3(&node->RItem->Bounds.Center))));
 
-	float threshold = 1000.f / (4 * node->layer + 1);
-
-	if (distToCam > threshold || !node->hasChildren)
+	if (distToCam > thresholds[node->layer] || !node->hasChildren)
 		mVisibleTerrain.push_back(node->RItem);
 
 	else
